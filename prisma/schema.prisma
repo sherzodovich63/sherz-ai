@@ -1,0 +1,419 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ✅ FAZA 4 ENUMS (qo‘shildi)
+enum ResponseLengthPref {
+  short
+  medium
+  long
+  auto
+}
+
+enum TonePref {
+  friendly
+  minimal_therapy
+  neutral
+}
+
+enum EnergyPref {
+  calm
+  energetic
+  balanced
+}
+
+// --- Mavjud modellar (tartib bilan) ---
+model User {
+  id        String    @id @default(cuid())
+  createdAt DateTime  @default(now())
+  name      String?
+  messages  Message[]
+  facts     Fact[]
+
+  // ✅ FAZA 4 relations (qo‘shildi)
+  profile  UserProfile?
+  emotions EmotionLog[]
+
+  // ✅ FAZA 6 LAB1: last_state relation (ixtiyoriy)
+  brainState BrainState?
+
+  // ✅ SHERZ_HEART v2 relations
+  toneEvents      ToneEvent[]
+  activitySignals ActivitySignal[]
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String // "user" | "assistant" | "system"
+  text      String
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([userId, createdAt])
+}
+
+model Fact {
+  id        String   @id @default(cuid())
+  userId    String
+  key       String   // masalan: "habit:morning" yoki "note"
+  value     String   // matn yoki JSON string
+  type      String?  // "habit" | "preference" | "meta" | ...
+  time      String?  // "morning", "evening", ...
+  rating    Int?     // 1 (yoqdi), -1 (yoqmadi), 0 yoki null
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  pinned    Boolean  @default(false)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // 2-bosqich bog'lanmalar:
+  tags      FactsOnTags[]
+  embedding FactEmbedding?
+
+  @@index([userId, key])
+  @@index([updatedAt])
+}
+
+// --- 2-bosqich: RAG, Habit analytics, Prefs ---
+
+model FactTag {
+  id    String        @id @default(cuid())
+  name  String        @unique
+  facts FactsOnTags[]
+}
+
+model FactsOnTags {
+  factId String
+  tagId  String
+
+  fact Fact    @relation(fields: [factId], references: [id], onDelete: Cascade)
+  tag  FactTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([factId, tagId])
+}
+
+model FactEmbedding {
+  factId    String   @id
+  vector    Bytes // ixtiyoriy: String qilib JSON ham saqlashingiz mumkin
+  updatedAt DateTime @updatedAt
+
+  fact Fact @relation(fields: [factId], references: [id], onDelete: Cascade)
+}
+
+model HabitEvent {
+  id       String   @id @default(cuid())
+  userId   String
+  habitKey String // masalan: "habit:suv_ichish"
+  action   String // 'fired' | 'done' | 'snooze'
+  firedAt  DateTime @default(now())
+
+  @@index([userId, habitKey])
+  @@index([userId, habitKey, firedAt])
+}
+
+model UserPref {
+  id        String   @id @default(cuid())
+  userId    String
+  key       String
+  json      String // JSON.stringify({ ... })
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, key])
+}
+
+model Todo {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  text      String
+  done      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([userId, done])
+}
+
+// ─────────────────────────────
+// YANGI MODELLAR: Reminder, MoodEntry, JournalEntry
+// ─────────────────────────────
+
+model Reminder {
+  id           Int       @id @default(autoincrement())
+  userId       String
+  text         String
+  scheduledFor DateTime
+  timezone     String    @default("Asia/Tashkent")
+  status       String    @default("pending") // pending | fired | cancelled
+  createdAt    DateTime  @default(now())
+  firedAt      DateTime?
+
+  @@index([userId])
+  @@index([userId, status])
+  @@index([scheduledFor])
+}
+
+model MoodEntry {
+  id       Int      @id @default(autoincrement())
+  userId   String
+  mood     String
+  note     String?
+  timezone String   @default("Asia/Tashkent")
+  loggedAt DateTime @default(now())
+
+  @@index([userId, loggedAt])
+}
+
+model JournalEntry {
+  id       Int      @id @default(autoincrement())
+  userId   String
+  title    String?
+  text     String
+  timezone String   @default("Asia/Tashkent")
+  loggedAt DateTime @default(now())
+
+  @@index([userId, loggedAt])
+}
+
+// ✅ FAZA 4: UserProfile modeli (yangilandi)
+model UserProfile {
+  userId String @id
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  displayName   String?
+  preferredName String?
+
+  useNameRate Float @default(0.18) // 0..1
+
+  lengthPref ResponseLengthPref @default(auto)
+  tonePref   TonePref           @default(friendly)
+  energyPref EnergyPref         @default(balanced)
+
+  // ✅ SHERZ bir marta “Sizni nima deb chaqiray?” so‘raganini eslab qolish
+  askedNameAt DateTime?
+
+  // ── SHERZ_HEART v2: Personality baseline (replaces punitive "Hurt" state) ──
+  // What kind of bonding style is "normal" for this specific user —
+  // detected over time so SHERZ doesn't misread playful roughness as a crisis.
+  baselineTone       String? @default("unknown")
+  // "playful_aggressive" | "warm_casual" | "formal_transactional" | "unknown"
+  baselineConfidence Float   @default(0.0) // 0..1 — gate behavior below 0.4
+  baselineSampleSize Int     @default(0) // how many messages informed this baseline
+
+  // ── Tone state: calm, in-the-moment boundary-setting, not silent treatment ──
+  toneState       String    @default("warm")
+  // "warm" | "neutral" | "guarded" | "direct"
+  toneStateSince  DateTime?
+  toneStateReason String? // short debug note: what triggered the last shift
+  calmTurnStreak  Int       @default(0) // consecutive calm/neutral turns — drives decay back to "warm"
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([displayName])
+  @@index([preferredName])
+  @@index([toneState])
+}
+
+// ─────────────────────────────
+// ✅ SHERZ_HEART v2: ToneEvent — append-only log of tone_state transitions
+// ─────────────────────────────
+model ToneEvent {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trigger    String // "harsh_language" | "tension_dissolved" | "manual_reset" | "decay_timeout"
+  fromState  String
+  toState    String
+  messageRef String? // optional: the Message.id that caused this shift
+  createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+// ─────────────────────────────
+// ✅ SHERZ_HEART v2: ActivitySignal — generic event feed for the proactive engine
+// Not just chat timestamps — designed to also ingest future OS-level
+// computer-use activity signals (VS Code open late, long focus sessions, etc.)
+// ─────────────────────────────
+model ActivitySignal {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind       String // "message_sent" | "late_night_active" | "long_session" | "os_activity"
+  occurredAt DateTime @default(now())
+  metadata   Json? // { hour: 1, durationMinutes: 95, app: "vscode", ... }
+
+  @@index([userId, occurredAt])
+  @@index([userId, kind, occurredAt])
+}
+
+// ✅ EmotionLog: relation + index (yangilandi, qolgan fieldlar o‘sha)
+model EmotionLog {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  emotion   String // sad, stressed, calm, happy...
+  score     Int // -3 → +3
+  reason    String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([userId, createdAt])
+}
+
+// ─────────────────────────────
+// ✅ FAZA 6 LAB1: BrainState (last_state 100%)
+// ─────────────────────────────
+model BrainState {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  lastSkill  String?
+  lastArgs   Json?
+  lastResult Json?
+
+  status String @default("idle") // idle | pending | done | failed
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([updatedAt])
+}
+
+model ProfileSummaryCache {
+  userId             String    @id
+  summary            String
+  latestFactAt       DateTime?
+  latestEmotionLogAt DateTime?
+  updatedAt          DateTime  @updatedAt
+}
+
+// ─────────────────────────────
+// ✅ FAZA 6 LAB5/LAB6: ProactiveEvent (LAB6 fieldlar qo‘shildi)
+// ─────────────────────────────
+model ProactiveEvent {
+  id        String   @id @default(cuid())
+  userId    String
+  createdAt DateTime @default(now())
+
+  // (optional) event type for analytics
+  kind String? // proactive | permission | soft_presence | boundary_respect | proactive_skip
+
+  // decision log
+  shouldMessage Boolean
+  reason        String?
+  tone          String?
+  message       String?
+
+  // delivery
+  sentAt    DateTime?
+  delivered Boolean   @default(false)
+
+  // feedback
+  gotReply      Boolean   @default(false)
+  replyAt       DateTime?
+  replyLatencyS Int?
+
+  // context snapshot
+  hourLocal Int?
+  dayOfWeek Int?
+
+  // ✅ LAB6: reply boundary tracking
+  awaitingReply   Boolean   @default(false)
+  replyDeadlineAt DateTime?
+
+  noReplyCause      String? // busy | avoiding | overwhelmed
+  noReplyConfidence Float? // 0..1
+  boundaryDecision  String? // normal | soft_presence | respect
+
+  permissionAsked  Boolean @default(false)
+  permissionResult String? // granted | deny | no_answer
+
+  softPresenceSent Boolean   @default(false)
+  respectUntil     DateTime?
+
+  metaJson Json?
+
+  @@index([userId, createdAt])
+  @@index([userId, delivered, gotReply])
+  @@index([userId, awaitingReply, replyDeadlineAt])
+}
+
+// ─────────────────────────────
+// ✅ FAZA 6 LAB5/LAB6: UserProactivePolicy (LAB6 fieldlar qo‘shildi)
+// ─────────────────────────────
+model UserProactivePolicy {
+  userId    String   @id
+  updatedAt DateTime @updatedAt
+
+  // existing knobs (qoladi, eski kodlar sinmasin)
+  cooldownMinutes Int @default(120)
+  maxPerDay       Int @default(4)
+
+  toneWeights  Json?
+  hourPenalty  Json?
+  blockedHours Json?
+
+  // ✅ LAB6 knobs
+  enabled Boolean @default(true)
+
+  // ✅ SHERZ_HEART v2: user-controlled snooze for late-night check-ins etc.
+  // Distinct from `respectModeUntil` (system-driven) — this is user-initiated.
+  proactiveMuteUntil DateTime?
+
+  softPresenceCooldownHours Int @default(12)
+  respectCooldownHours      Int @default(24)
+
+  permissionSensitivity Int @default(2)
+  // 0=never ask, 1=sometimes, 2=often(default), 3=always before soft_presence
+
+  lastSoftPresenceAt DateTime?
+  respectModeUntil   DateTime?
+
+  busyScore        Float @default(0)
+  avoidingScore    Float @default(0)
+  overwhelmedScore Float @default(0)
+
+  @@index([updatedAt])
+}
+
+// ✅ Proactive Inbox queue (backend → frontend pipeline)
+
+enum InboxStatus {
+  PENDING
+  SENT
+  READ
+  ARCHIVED
+}
+
+model ProactiveInbox {
+  id       String      @id @default(cuid())
+  userId   String
+  type     String // "EMOTION_TREND" | "INACTIVITY" | ...
+  title    String?
+  body     String
+  priority Int         @default(5) // 1 = high, 10 = low
+  status   InboxStatus @default(PENDING)
+
+  // dedupe: bir xil trigger qayta-qayta spam bo'lmasin
+  dedupeKey String?
+  meta      Json?
+
+  scheduledFor DateTime?
+  sentAt       DateTime?
+  readAt       DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([userId, status, createdAt])
+  @@index([userId, dedupeKey])
+}
