@@ -1366,9 +1366,38 @@ html.platform-ios body {
     const CONFIG = {
       API_URL: (location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.hostname === '')
         ? ''
-        : 'https://sherz-ai.onrender.com'
+        : 'https://REPLACE-WITH-YOUR-RENDER-URL.onrender.com'
     };
     const apiUrl = (path) => `${CONFIG.API_URL}${path}`;
+
+    // ✅ Guest session identity — every visitor gets their own isolated
+    // userId instead of sharing the old hardcoded 'u1'. Persisted in
+    // localStorage so it's stable across reloads on the same browser/device.
+    // If a real authenticated user later exists, the backend already prefers
+    // req.user.id (from a verified JWT) over this value automatically — this
+    // is purely the fallback identity for unauthenticated visitors.
+    function getGuestId(){
+      const KEY = 'sherz_guest_id';
+      try{
+        let id = localStorage.getItem(KEY);
+        if (!id){
+          id = 'guest_' + (window.crypto?.randomUUID
+            ? crypto.randomUUID()
+            : 'xxxxxxxxxxxx4xxxyxxxxxxxxxxxxxxx'.replace(/[xy]/g, c => {
+                const r = Math.random() * 16 | 0;
+                return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+              }));
+          localStorage.setItem(KEY, id);
+        }
+        return id;
+      }catch(e){
+        // localStorage unavailable (private browsing, etc.) — fall back to an
+        // in-memory id that's at least unique for this page session
+        console.warn('[guest-id] localStorage unavailable, using session-only id:', e.message);
+        return 'guest_session_' + Math.random().toString(16).slice(2);
+      }
+    }
+    const GUEST_ID = getGuestId();
 
     const $ = (id) => document.getElementById(id);
     const feed = $('log');
@@ -1863,14 +1892,14 @@ html.platform-ios body {
 
       // ✅ Odamiy intro variantlar
       const INTROS = [
-        `${greet}, Bekzod 🙂\nMen shu yerdaman. Bugun kayfiyat qalay?`,
+        `${greet} 🙂\nMen shu yerdaman. Bugun kayfiyat qalay?`,
         `${greet} 👋\nNima gaplar? Bugun nimalar bo‘lyapti?`,
-        `${greet}, Bekzod.\nBir choy ichib gaplashgandek: nima o‘ylayapsan hozir?`,
+        `${greet}.\nBir choy ichib gaplashgandek: nima o‘ylayapsan hozir?`,
         `${greet}.\nYurak qanday? Biror narsa ichingni siqyaptimi?`,
-        `${greet}, Bekzod 🙂\nBugun SHERZ’ni qaysi joyini chiroyli qilib qo‘yamiz?`,
+        `${greet} 🙂\nBugun SHERZ’ni qaysi joyini chiroyli qilib qo‘yamiz?`,
         `${greet} 👀\nMen tayyorman. Xohlasang shunchaki gaplashamiz, xohlasang ish qilamiz.`,
         `${greet}.\nHozir seni ko‘proq nima qiynayapti: kayfiyatmi, ishmi, odamlarimi?`,
-        `${greet}, Bekzod.\nBir gap ayt: bugun “+” bo‘ldimi yoki “–”?`
+        `${greet}.\nBir gap ayt: bugun “+” bo‘ldimi yoki “–”?`
       ];
 
       // ✅ tabiiy chiplar (robot emas)
@@ -2034,7 +2063,7 @@ html.platform-ios body {
           headers:{'Content-Type':'application/json'},
           body: JSON.stringify({
             message: q,
-            userId: ($('uid')?.value || 'u1'),
+            userId: (GUEST_ID),
             ui: { tone:'normal', lang:'uz' }
           })
         });
@@ -2151,7 +2180,7 @@ html.platform-ios body {
         headers:{'Content-Type':'application/json'},
         body: JSON.stringify({
           message: q,
-          userId: ($('uid')?.value || 'u1'),
+          userId: (GUEST_ID),
           ui: { tone:'normal', lang:'uz' }
         })
       });
@@ -2244,7 +2273,7 @@ html.platform-ios body {
 
     async function refreshFacts(){
       try{
-        const uid = ($('uid')?.value || 'u1');
+        const uid = (GUEST_ID);
         const r = await fetch(apiUrl(`/api/facts/${encodeURIComponent(uid)}?only=user`));
         const data = await r.json();
         $('factsBox').innerHTML = (data.facts||[])
@@ -2566,7 +2595,7 @@ html.platform-ios body {
     setStatus('idle');
     startPlaceholderRotation();
     scheduleIdleUX();
-    connectSSE(($('uid')?.value || 'u1'));
+    connectSSE((GUEST_ID));
     runIntroIfEmpty();
  
   // =========================
