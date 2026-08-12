@@ -86,23 +86,33 @@ function makeHelmet() {
 app.use(morgan('dev'));
 app.use(makeHelmet());
 // ✅ CORS_ORIGIN env var — comma-separated list of allowed frontend origins,
-// e.g. "https://sherz.vercel.app,https://sherz-git-main.vercel.app"
-// Unset/empty = allow all origins (current behavior, fine for local dev).
-// Set this in Render's dashboard once the Vercel domain is known to lock it down.
+// e.g. "https://sherz-ai.vercel.app,https://sherz.example.com"
+// Unset/empty = allow all origins (fine for local dev).
+// Set this in Render's dashboard to lock it down once your Vercel domain is known.
 const allowedOrigins = (process.env.CORS_ORIGIN || '')
   .split(',')
   .map(s => s.trim())
   .filter(Boolean);
 
-app.use(cors({
+console.log('[cors] CORS_ORIGIN allowlist:', allowedOrigins.length ? allowedOrigins : '(none set — allowing all origins)');
+
+const corsOptions = {
   origin: (origin, callback) => {
     if (!origin) return callback(null, true); // server-to-server / curl / no Origin header
-    if (allowedOrigins.length === 0) return callback(null, true); // not configured yet — allow all
+    // Any *.vercel.app origin is trusted automatically — Vercel issues a new
+    // preview URL per branch/PR (e.g. sherz-ai-git-main-yourteam.vercel.app),
+    // which a fixed CORS_ORIGIN list won't anticipate. This is the most
+    // likely actual cause of "origin not allowed" against a Vercel frontend.
+    if (/\.vercel\.app$/.test(new URL(origin).hostname)) return callback(null, true);
+    if (allowedOrigins.length === 0) return callback(null, true); // not configured — allow all
     if (allowedOrigins.includes(origin)) return callback(null, true);
-    console.warn('[cors] blocked origin:', origin);
+    console.warn('[cors] blocked origin:', origin, '— add it to CORS_ORIGIN in Render if this is expected');
     return callback(new Error('Not allowed by CORS'));
   },
-}));
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // ✅ explicit preflight handling, belt-and-suspenders
 app.use(express.json());
 app.use('/api', apiLimiter);
 
@@ -1657,6 +1667,9 @@ async function runSkillCandidates(clean, lower, userId) {
 async function runBrainFlow(userId, clean, image, { onToken } = {}) {
   console.log(`[brain.llm] No specialist matched for userId=${userId}, routing to GPT brain`);
   try {
+    // 🟢 Guest foydalanuvchini bazada tayyorlash (FK xatosini oldini olish uchun)
+    await ensureGuestUser(userId);
+
     // Load last 20 messages from DB for context window
     let history = [];
     try {
@@ -1727,6 +1740,30 @@ app.post('/handle-intent', async (req, res) => {
 
 // Moslik uchun /api/ask → /handle-intent
 // ── /api/chat alias: script.js calls this; proxies to /handle-intent ─────────
+  // ── /api/auth/guest: issues a real JWT for a client-generated guest_id ──
+// Safe in ALL environments (unlike /api/auth/dev-token, which stays
+// deliberately disabled in production). This is the Master-Clone
+// provisioning endpoint: each guest_id becomes its own isolated clone via
+// ensureGuestUser (see previous message), then gets a real signed token so
+// it can pass authRequired like any authenticated user.
+app.post('/api/auth/guest', async (req, res) => {
+  try {
+    const guestId = String(req.body?.guestId || req.body?.userId || '').trim();
+    if (!guestId || !guestId.startsWith('guest_')) {
+      return res.status(400).json({ ok: false, error: 'guestId required (must start with "guest_")' });
+    }
+
+    const user = await ensureGuestUser(guestId); // provisions the isolated clone if new
+
+    const { signJwt } = await import('./middleware/auth.js');
+    const token = signJwt({ id: user.id, name: user.name });
+
+    return res.json({ ok: true, token, user: { id: user.id, name: user.name } });
+  } catch (err) {
+    console.error('[auth/guest] error:', err.message);
+    return res.status(500).json({ ok: false, error: 'guest auth failed' });
+  }
+});
 app.post('/api/chat', async (req, res) => {
   try {
     // Extract text from both naming conventions used by the frontend
