@@ -112,7 +112,7 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions)); // ✅ explicit preflight handling, belt-and-suspenders
+app.options(/.*/, cors(corsOptions)); // ✅ explicit preflight handling, belt-and-suspenders — RegExp form avoids path-to-regexp's string-wildcard parsing entirely
 app.use(express.json());
 app.use('/api', apiLimiter);
 
