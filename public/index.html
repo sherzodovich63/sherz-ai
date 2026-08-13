@@ -1399,6 +1399,58 @@ html.platform-ios body {
     }
     const GUEST_ID = getGuestId();
 
+    // ✅ Guest auth — exchanges GUEST_ID for a real JWT so requests pass the
+    // backend's authRequired check in production (see /api/auth/guest).
+    // Cached in localStorage so we don't re-fetch on every reload.
+    let guestToken = null;
+    try{ guestToken = localStorage.getItem('sherz_guest_token'); }catch(e){}
+
+    async function fetchGuestToken(){
+      try{
+        const r = await fetch(apiUrl('/api/auth/guest'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ guestId: GUEST_ID })
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || !data.ok || !data.token) throw new Error(data.error || `HTTP ${r.status}`);
+        guestToken = data.token;
+        try{ localStorage.setItem('sherz_guest_token', guestToken); }catch(e){}
+        return guestToken;
+      }catch(e){
+        console.warn('[auth] guest token fetch failed:', e.message);
+        return null; // requests proceed unauthenticated; backend falls back to req.body.userId
+      }
+    }
+    // Kick off immediately on load so a token is likely ready before the
+    // first message send, without blocking anything else from running
+    const guestTokenReady = fetchGuestToken();
+
+    // ✅ Every authenticated request should go through this instead of a bare
+    // fetch() — attaches Authorization: Bearer <token> automatically, and if
+    // a cached token turns out to be stale/expired (401), clears it and
+    // retries once with a freshly-issued one before giving up.
+    async function fetchWithAuth(url, opts = {}){
+      if (!guestToken) await guestTokenReady; // first call on the page waits for the initial fetch
+      const withAuth = (extraHeaders) => ({
+        ...opts,
+        headers: {
+          ...(opts.headers || {}),
+          ...(guestToken ? { 'Authorization': `Bearer ${guestToken}` } : {}),
+          ...(extraHeaders || {}),
+        },
+      });
+
+      let r = await fetch(url, withAuth());
+      if (r.status === 401 && guestToken){
+        guestToken = null;
+        try{ localStorage.removeItem('sherz_guest_token'); }catch(e){}
+        await fetchGuestToken();
+        r = await fetch(url, withAuth());
+      }
+      return r;
+    }
+
     const $ = (id) => document.getElementById(id);
     const feed = $('log');
 
@@ -1980,7 +2032,7 @@ html.platform-ios body {
 
       let objectUrl = null;
       try{
-        const r = await fetch(apiUrl('/api/tts'), {
+        const r = await fetchWithAuth(apiUrl('/api/tts'), {
           method: 'POST',
           headers: {'Content-Type':'application/json'},
           body: JSON.stringify({ text: q })
@@ -2058,7 +2110,7 @@ html.platform-ios body {
         setStatus('thinking');
         showTyping();
 
-        const r = await fetch(apiUrl('/api/chat-stream'), {
+        const r = await fetchWithAuth(apiUrl('/api/chat-stream'), {
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body: JSON.stringify({
@@ -2175,7 +2227,7 @@ html.platform-ios body {
     // reached (e.g. proxy/infra doesn't support SSE). Same blocking
     // request+typewriter behavior the app used before streaming existed.
     async function sendToServerFallback(q){
-      const r = await fetch(apiUrl('/api/chat'), {
+      const r = await fetchWithAuth(apiUrl('/api/chat'), {
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body: JSON.stringify({
@@ -2274,7 +2326,7 @@ html.platform-ios body {
     async function refreshFacts(){
       try{
         const uid = (GUEST_ID);
-        const r = await fetch(apiUrl(`/api/facts/${encodeURIComponent(uid)}?only=user`));
+        const r = await fetchWithAuth(apiUrl(`/api/facts/${encodeURIComponent(uid)}?only=user`));
         const data = await r.json();
         $('factsBox').innerHTML = (data.facts||[])
           .map(f=>`<div class="item">• <b>${esc(f.key)}</b>: ${esc(f.value)}</div>`).join('') || '<i style="color:rgba(255,255,255,0.55)">Hali yo‘q</i>';
@@ -2282,7 +2334,7 @@ html.platform-ios body {
     }
     async function refreshReminders(){
       try{
-        const r = await fetch(apiUrl('/api/reminders'));
+        const r = await fetchWithAuth(apiUrl('/api/reminders'));
         const data = await r.json();
         $('remBox').innerHTML = (data.reminders||[])
           .map(x=>`<div class="item">• <b>${esc(x.title)}</b> — ${esc(new Date(x.dueAt).toLocaleString())}</div>`).join('') || '<i style="color:rgba(255,255,255,0.55)">Eslatma yo‘q</i>';
@@ -2472,7 +2524,7 @@ html.platform-ios body {
       fd.append('file', blob, `voice.${ext}`);
       fd.append('lang', 'uz');
 
-      const r = await fetch(apiUrl('/api/stt'), { method: 'POST', body: fd });
+      const r = await fetchWithAuth(apiUrl('/api/stt'), { method: 'POST', body: fd });
       const data = await r.json().catch(() => ({}));
       transcribing = false;
 
