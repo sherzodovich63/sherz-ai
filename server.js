@@ -1546,6 +1546,34 @@ QOIDALAR:
 
 function runSkillGreeting() { return { said: 'Salom, qanday yordam bera olaman?' }; }
 
+// ── ensureGuestUser: isolated context/memory bootstrap for a guest_id ──
+// Guarantees a real User row exists for that id BEFORE anything else
+// touches it — without this, the first prisma.message.create()/fact write
+// for a brand-new guest UUID hits a foreign-key constraint failure, since
+// nothing upstream creates the row. Idempotent and cheap (upsert), safe to
+// call on every request rather than just "the first".
+async function ensureGuestUser(userId) {
+  if (!userId || typeof userId !== 'string') {
+    throw new Error('ensureGuestUser: userId is required');
+  }
+  try {
+    const user = await prisma.user.upsert({
+      where:  { id: userId },
+      update: {}, // existing users/guests are left untouched — no data clobbered
+      create: {
+        id:   userId,
+        name: userId.startsWith('guest_') ? 'Guest' : userId,
+      },
+    });
+    return user;
+  } catch (err) {
+    console.error(`[ensureGuestUser] failed for userId=${userId}:`, err.message);
+    // Non-fatal fallback — callers keep working with the id even if the
+    // upsert itself failed (e.g. transient DB hiccup)
+    return { id: userId, name: 'Guest' };
+  }
+}
+
 // ── Shared: skill-candidate matching (used by /handle-intent and /api/chat-stream) ──
 // Pure extraction from /handle-intent — logic is byte-for-byte identical to
 // before, just made callable from more than one route.
@@ -1760,7 +1788,15 @@ app.post('/api/auth/guest', async (req, res) => {
 
     return res.json({ ok: true, token, user: { id: user.id, name: user.name } });
   } catch (err) {
-    console.error('[auth/guest] error:', err.message);
+    // ✅ Log the full error, not just .message — a bare message can be a
+    // generic one-liner that doesn't distinguish "JWT_SECRET missing" from
+    // "module import failed" from anything else. This is the exact line to
+    // watch in Render's logs after the next request to this route.
+    console.error('[auth/guest] error:', err.name, '-', err.message);
+    console.error(err.stack);
+    if (!process.env.JWT_SECRET) {
+      console.error('[auth/guest] ⚠️ JWT_SECRET is not set in this environment — this is almost certainly the cause.');
+    }
     return res.status(500).json({ ok: false, error: 'guest auth failed' });
   }
 });
