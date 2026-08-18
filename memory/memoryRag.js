@@ -1,4 +1,3 @@
-// src/memory/memoryRag.js (ESM)
 import crypto from 'crypto';
 import { openai } from '../llm/openaiClient.js';
 
@@ -33,21 +32,29 @@ function cosine(a = [], b = []) {
 
 async function embedText(text, model) {
   const input = (text || '').slice(0, 1500);
-  const r = await openai.embeddings.create({
-    model,
-    input,
-  });
+  const r = await openai.embeddings.create({ model, input });
   return r?.data?.[0]?.embedding || null;
 }
 
-/**
- * prisma.fact (yoki prisma.memoryFact) bor deb faraz qilamiz:
- *   - userId
- *   - key (optional)
- *   - value/text
- *   - updatedAt/createdAt
- *   - embedding (optional: Float[] / json)
- */
+// ✅ FIX: decode a Fact's related FactEmbedding.vector (Bytes) back into a
+// plain number[]. Copies into a fresh, guaranteed-4-byte-aligned buffer
+// first — a Buffer handed back by the DB driver can be a slice of a larger
+// pooled allocation with an arbitrary byteOffset, which Float32Array's
+// constructor requires and throws on otherwise (verified empirically).
+function decodeEmbeddingVector(bytesField) {
+  if (!bytesField) return null;
+  try {
+    const buf = Buffer.isBuffer(bytesField) ? bytesField : Buffer.from(bytesField);
+    if (!buf.length || buf.length % 4 !== 0) return null;
+    const aligned = Buffer.alloc(buf.length);
+    buf.copy(aligned);
+    const floatArr = new Float32Array(aligned.buffer, aligned.byteOffset, aligned.length / 4);
+    return Array.from(floatArr);
+  } catch {
+    return null;
+  }
+}
+
 export async function getRelevantFacts({
   userId,
   query,
@@ -57,21 +64,22 @@ export async function getRelevantFacts({
 }) {
   if (!prisma) return [];
 
-  // 1) Facts ni olib kelamiz (limit qo‘yib turamiz)
+  // ✅ FIX: was missing `include: { embedding: true }` — f.embedding was
+  // always undefined before, so the entire semantic-similarity path was
+  // silently dead code; every call fell through to keyword-only scoring.
   const facts = await prisma.fact.findMany({
     where: { userId },
     orderBy: { updatedAt: 'desc' },
     take: 80,
+    include: { embedding: true },
   });
 
   if (!facts?.length) return [];
 
-  // 2) Embedding yo‘li (agar fact.embedding saqlanayotgan bo‘lsa)
   const embModel = process.env.SHERZ_EMBED_MODEL || 'text-embedding-3-small';
   const canEmbed = useEmbeddings && !!process.env.OPENAI_API_KEY;
 
   if (canEmbed) {
-    // query embedding
     let qEmb = null;
     try {
       qEmb = await embedText(query, embModel);
@@ -80,12 +88,18 @@ export async function getRelevantFacts({
     }
 
     if (qEmb) {
-      // fact.embedding bo‘lmasa fallback score ishlaydi
       const scored = facts.map(f => {
-        const fEmb = f.embedding || null;
-        const sim = Array.isArray(fEmb) ? cosine(qEmb, fEmb) : 0;
+        // ✅ FIX: f.embedding is now the included FactEmbedding row (or
+        // null) — decode its Bytes vector; anything that doesn't decode
+        // cleanly just falls back to sim=0 (same as before this fix, no
+        // regression for any fact type that never got an embedding written)
+        const fVec = decodeEmbeddingVector(f.embedding?.vector);
+        const sim = fVec ? cosine(qEmb, fVec) : 0;
         const kw = keywordScore(query, `${f.key || ''} ${f.value || f.text || ''}`);
-        const score = (sim * 1000) + kw; // sim asosiy, kw qo‘shimcha
+        // ✅ NEW: pinned facts (e.g. compacted conversation summaries) get a
+        // flat boost so they don't get crowded out by recency alone
+        const pinBoost = f.pinned ? 5 : 0;
+        const score = (sim * 1000) + kw + pinBoost;
         return { f, score, sim, kw };
       });
 
@@ -94,10 +108,11 @@ export async function getRelevantFacts({
     }
   }
 
-  // 3) Fallback: keyword overlap
+  // Fallback: keyword overlap (now also respects pinned)
   const scored2 = facts.map(f => {
     const text = `${f.key || ''} ${f.value || f.text || ''}`;
-    return { f, score: keywordScore(query, text) };
+    const pinBoost = f.pinned ? 5 : 0;
+    return { f, score: keywordScore(query, text) + pinBoost };
   });
   scored2.sort((a, b) => b.score - a.score);
   return scored2.slice(0, topK).map(x => x.f);

@@ -2212,8 +2212,15 @@ html.platform-ios body {
         }
         feed.scrollTop = feed.scrollHeight;
 
-        setStatus('speaking');
-        playTTS(said); // fire-and-forget — playTTS calls startListening() itself when done
+        // ✅ Strict mode: TTS audio only plays for voice-initiated turns.
+        // Typed messages get a text-only reply — fast and quiet, no audio
+        // generated unless the user explicitly spoke to begin with.
+        if (lastTurnSource === 'voice'){
+          setStatus('speaking');
+          playTTS(said); // fire-and-forget — playTTS calls startListening() itself when done
+        } else {
+          setStatus('idle');
+        }
 
       }catch(e){
         hideTyping(); setStatus('idle');
@@ -2255,8 +2262,13 @@ html.platform-ios body {
       const said = data.reply ?? (typeof data==='string' ? data : JSON.stringify(data));
       await addAiTypewriter(String(said));
 
-      setStatus('speaking');
-      playTTS(String(said));
+      // ✅ Strict mode: same TTS gating as the primary streaming path
+      if (lastTurnSource === 'voice'){
+        setStatus('speaking');
+        playTTS(String(said));
+      } else {
+        setStatus('idle');
+      }
     }
 
     // =========================
@@ -2450,17 +2462,35 @@ html.platform-ios body {
     }
 
     chunks = [];
-    const mimeType = (window.MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported('audio/webm;codecs=opus'))
-      ? 'audio/webm;codecs=opus'
-      : (window.MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '');
+    // ✅ iOS Safari fix: Safari does not support the webm container at all —
+    // MediaRecorder.isTypeSupported('audio/webm...') is always false there,
+    // so the old code fell through to "no explicit mimeType", which is the
+    // documented cause of MediaRecorder silently failing or producing an
+    // unusable blob on iOS. audio/mp4 is Safari's actual native format.
+    const MIME_CANDIDATES = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/mp4;codecs=mp4a.40.2',
+      'audio/mp4',
+    ];
+    const supportsType = (t) => { try { return window.MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t); } catch { return false; } };
+    const mimeType = MIME_CANDIDATES.find(supportsType) || '';
     try{
       mediaRecorder = mimeType ? new MediaRecorder(mediaStream, { mimeType }) : new MediaRecorder(mediaStream);
     }catch(e){
-      releaseStream();
-      heroMicEl?.classList.remove('listening');
-      setStatus('idle');
-      addError('Ovoz yozuvchini ishga tushirib bo\u2018lmadi: ' + e.message);
-      return;
+      // Belt-and-suspenders: if creation with the detected mimeType still
+      // throws (a mismatch between isTypeSupported and actual construction
+      // has been observed on some Safari versions), retry with no explicit
+      // type at all before giving up entirely.
+      try{
+        mediaRecorder = new MediaRecorder(mediaStream);
+      }catch(e2){
+        releaseStream();
+        heroMicEl?.classList.remove('listening');
+        setStatus('idle');
+        addError('Ovoz yozuvchini ishga tushirib bo\u2018lmadi: ' + e2.message);
+        return;
+      }
     }
 
     mediaRecorder.ondataavailable = (ev)=>{ if (ev.data && ev.data.size > 0) chunks.push(ev.data); };
@@ -2511,20 +2541,38 @@ html.platform-ios body {
   // sends the finished blob to the existing /api/stt (Whisper) endpoint
   async function onRecordingStopped(){
     releaseStream();
-    const blob = new Blob(chunks, { type: (mediaRecorder && mediaRecorder.mimeType) || 'audio/webm' });
+    const blob = new Blob(chunks, { type: (mediaRecorder && mediaRecorder.mimeType) || 'audio/mp4' });
     chunks = [];
     if (!blob.size){ setStatus('idle'); return; }
 
     transcribing = true;
     setStatus('transcribing');
 
-    try{
+    const buildForm = () => {
       const fd = new FormData();
-      const ext = (blob.type.split('/')[1] || 'webm').split(';')[0];
+      const ext = (blob.type.split('/')[1] || 'mp4').split(';')[0];
       fd.append('file', blob, `voice.${ext}`);
       fd.append('lang', 'uz');
+      return fd;
+    };
 
-      const r = await fetchWithAuth(apiUrl('/api/stt'), { method: 'POST', body: fd });
+    // ✅ iOS fix: 'Load failed' on Safari after getUserMedia/MediaRecorder
+    // activity is frequently a transient network/audio-session hiccup, not a
+    // real failure — one automatic retry resolves it in most observed cases
+    // without the user having to notice or re-tap anything.
+    async function uploadWithRetry(attempt = 1){
+      try{
+        return await fetchWithAuth(apiUrl('/api/stt'), { method: 'POST', body: buildForm() });
+      }catch(e){
+        if (attempt >= 2) throw e;
+        console.warn(`[stt] upload attempt ${attempt} failed (${e.message}), retrying once...`);
+        await new Promise(res => setTimeout(res, 400));
+        return uploadWithRetry(attempt + 1);
+      }
+    }
+
+    try{
+      const r = await uploadWithRetry();
       const data = await r.json().catch(() => ({}));
       transcribing = false;
 

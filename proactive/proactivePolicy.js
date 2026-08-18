@@ -37,6 +37,26 @@ function parseEmotionTrend(profile) {
   };
 }
 
+// ✅ NEW: interprets signals.relationshipToneState into a simple boolean.
+
+function parseRelationshipToneSignal(signals) {
+  const rt = signals.relationshipToneState;
+  const empty = { current: null, isGuarded: false, isDirect: false, minutesSinceShift: null, trigger: null };
+  if (!rt || !rt.current) return empty;
+
+  const state = String(rt.current).toLowerCase();
+  const mins = rt.minutesSinceShift;
+  const inWindow = mins != null && mins >= 45 && mins <= 1440;
+
+  return {
+    current: rt.current,
+    isGuarded: inWindow && state === 'guarded',
+    isDirect: inWindow && state === 'direct',
+    minutesSinceShift: mins,
+    trigger: rt.trigger,
+  };
+}
+
 /** ✅ LAB5: DB policy o‘qish (bo‘lmasa null) */
 async function getAdaptivePolicy(prisma, userId) {
   try {
@@ -82,7 +102,7 @@ function getHourPenalty(hour, hourPenalty) {
 
 function toneFromSignals({ profile, emotion }) {
   const pref = profile?.preferredTone || null; // "direct" | "supportive" | "playful"
-  if (emotion.stressFlag || emotion.dominant === 'sad') return 'supportive';
+  if (emotion.stressFlag || emotion.dominant === 'sad' || emotion.relationshipGuarded) return 'supportive';
   if (emotion.dominant === 'happy') return pref || 'playful';
   return pref || 'direct';
 }
@@ -90,7 +110,7 @@ function toneFromSignals({ profile, emotion }) {
 /** ✅ LAB5: toneWeights bilan tone tanlash */
 function pickToneWithWeights(baseTone, emotion, toneWeights) {
   // Stress bo‘lsa supportive har doim 1-o‘rinda qoladi (oldingi logikaga zarar bermaymiz)
-  if (emotion?.stressFlag || emotion?.dominant === 'sad') return 'supportive';
+  if (emotion?.stressFlag || emotion?.dominant === 'sad' || emotion?.relationshipGuarded) return 'supportive';
 
   if (!toneWeights || typeof toneWeights !== 'object') return baseTone;
 
@@ -111,7 +131,7 @@ function pickToneWithWeights(baseTone, emotion, toneWeights) {
 }
 
 function lengthFromSignals({ idleMin, emotion }) {
-  if (emotion.stressFlag) return 'short';
+  if (emotion.stressFlag || emotion.relationshipGuarded) return 'short';
   if (idleMin != null && idleMin >= 360) return 'medium';
   return 'short';
 }
@@ -170,6 +190,10 @@ export async function decideProactive({ userId, prisma, signals, config = {} }) 
 
   // --- emotion trend
   const emotion = parseEmotionTrend(signals.profile);
+  
+  // ✅ NEW: fold relationship-tone signal into `emotion`
+  const relTone = parseRelationshipToneSignal(signals);
+  emotion.relationshipGuarded = relTone.isGuarded || relTone.isDirect;
 
   // --- rules/score
   const reasons = [];
@@ -182,6 +206,27 @@ export async function decideProactive({ userId, prisma, signals, config = {} }) 
   } else if (signals.idleMin >= 30) {
     score += 1;
     reasons.push(`Idle ${signals.idleMin}min >= 30.`);
+  }
+}
+
+// ✅ NEW: standing guarded/direct tone that hasn't naturally recovered —
+// weighted similarly to "long idle", less than an active stress trend
+if (emotion.relationshipGuarded) {
+  score += 2;
+  reasons.push(`Relationship tone still ${relTone.current} after ${relTone.minutesSinceShift}m (trigger: ${relTone.trigger || 'unknown'}).`);
+}
+
+// ✅ NEW: rhythm-gap from ActivitySignal — only counts alongside the
+// existing idle signal (deliberately conservative; a bounded histogram is
+// noisier than a direct idle timestamp, so it corroborates rather than
+// triggers independently)
+if (signals.activity?.typicalHour != null && signals.activity.typicalHourConfidence >= 0.3) {
+  const rawDiff = Math.abs(signals.time.hour - signals.activity.typicalHour);
+  const hourDiff = Math.min(rawDiff, 24 - rawDiff); // wrap around midnight
+  const nearTypicalHour = hourDiff <= 1;
+  if (nearTypicalHour && signals.idleMin != null && signals.idleMin >= 60) {
+    score += 1;
+    reasons.push(`Near typical activity hour (${signals.activity.typicalHour}) but idle ${signals.idleMin}m.`);
   }
 }
 

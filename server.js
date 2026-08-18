@@ -19,6 +19,8 @@ import { notFound, errorHandler } from './middleware/error.js';
 import { authRequired } from './middleware/auth.js';
 
 import { runNluForMemory } from './nlu/runNluForMemory.js';          
+import { maybeCompactOldMessages } from './memory/conversationCompactor.js'; // ✅ NEW
+import { runSkillMilestone } from './memory/milestones.js'; // ✅ NEW
 import { saveMemoryFactsForUser } from './nlu/saveMemoryFacts.js';   
 import { addTodo, listTodos } from './brain/todoService.js';
 import { runSkill } from './brain/skillsRouter.js';
@@ -1454,14 +1456,32 @@ async function runSkillFeedbackDislike({ lower, userId }) {
   return { said: `Tushunarli. Keyingi safar "${topic}" o‘rniga boshqa mavzuni tanlayman.` };
 }
 
+// ✅ Tightened: explicit lookup-intent words ("haqida", "qidir", "google",
+// etc.) still trigger immediately — those are unambiguous. But bare question
+// words (kim/nima/qachon/qayerda/qancha/who/what/where/when) are extremely
+// common in ordinary conversation ("nima qilyapsan?" / "qalaysan?") and were
+// previously enough on their own to trigger a real web search + a second
+// full OpenAI synthesis call before the message ever reached brain.llm.
+// Those weak signals now also require an actual '?' AND at least 4 words,
+// so they only fire for things that actually look like factual questions.
+function shouldAttemptSearchQA(clean, lower) {
+  const explicitLookupIntent =
+    /\bhaqida\b/i.test(lower) || /\bqidir(ish|ib)?\b/i.test(lower) ||
+    /\bsearch\b/i.test(lower) || /\bgoogle\b/i.test(lower) ||
+    /\bizla\b/i.test(lower) || /\bfind\b/i.test(lower);
+
+  if (explicitLookupIntent) return true;
+
+  const hasQuestionWord =
+    /\b(who|when|where|what|about|kim|nima|qachon|qayerda|qancha|ma(?:'|’)nosi)\b/i.test(lower);
+  const hasQuestionMark = /[?？]/.test(clean);
+  const substantial = clean.trim().split(/\s+/).filter(Boolean).length >= 3;
+
+  return hasQuestionWord && hasQuestionMark && substantial;
+}
+
 async function runSkillSearchQA({ clean, lower }) {
-  const hasSearchTrigger =
-    /\bhaqida\b/i.test(lower) || /\bqidir(ish|ib)?\b/i.test(lower) || /\bsearch\b/i.test(lower) ||
-    /\bwho\b/i.test(lower) || /\bwhen\b/i.test(lower) || /\bwhere\b/i.test(lower) ||
-    /\bwhat\b/i.test(lower) || /\babout\b/i.test(lower) || /\bfind\b/i.test(lower) ||
-    /\bkim\b/i.test(lower) || /\bnima\b/i.test(lower) || /\bqachon\b/i.test(lower) ||
-    /\bqayerda\b/i.test(lower) || /\bqancha\b/i.test(lower) || /\bma(?:'|')nosi\b/i.test(lower) ||
-    /\bizla\b/i.test(lower) || /\bgoogle\b/i.test(lower);
+  const hasSearchTrigger = shouldAttemptSearchQA(clean, lower);
 
   if (hasSearchTrigger) {
     const refined = clean
@@ -1529,16 +1549,6 @@ QOIDALAR:
       console.warn('[search.qa] synthesis LLM failed, falling through to brain.llm:', err?.message);
       return null;
     }
-  }
-
-  const onlyGreeting = /\b(salom|assalomu alaykum|assalomu|salomlar|rahmat|ok|ha)\b/i.test(lower);
-  const looksQuestion =
-    /[?]/.test(clean) ||
-    /\b(kim|nima|qachon|qayer|qancha|nega|nimaga|qanday|ma(?:'|')nosi|what|who|when|where|why|how|meaning)\b/i.test(lower);
-
-  if (!onlyGreeting && looksQuestion) {
-    const brief = await buildBriefAnswer(clean);
-    if (brief) return { said: brief };
   }
 
   return null;
@@ -1647,6 +1657,14 @@ async function runSkillCandidates(clean, lower, userId) {
       run: () => runSkillDailyBriefing({ userId })
     },
 
+    // ✅ NEW: Conversational milestones — user asking about relationship
+    // history/journey, not a points/badges system. See memory/milestones.js
+    {
+      name: 'milestone',
+      test: () => /qachondan\s+beri|necha\s+kun(dan)?\s+beri|qancha\s+vaqt(dan)?\s+beri|bizning\s+tarix|qanday\s+o[‘’']zgardik|safarimiz|necha\s+marta\s+gaplash/i.test(lower),
+      run: () => runSkillMilestone({ userId, prisma })
+    },
+
     // Boshqa skill-lar
     { name: 'reminder.simple',  test: () => /eslat|remind/i.test(lower),                           run: () => runSkillReminderSimple({ lower }) },
     { name: 'fact.random',      test: () => /qiziq\s+fakt\s+ayt|interesting\s+fact/i.test(lower),  run: () => runSkillInterestingFact({ clean, lower, userId }) },
@@ -1662,8 +1680,10 @@ async function runSkillCandidates(clean, lower, userId) {
     },
 
     // search.qa: tries wiki + web search for explicit search queries.
-    // Returns null for plain conversation — brain.llm handles those below.
-    { name: 'search.qa', test: () => true, run: () => runSkillSearchQA({ clean, lower }) },
+    // ✅ test() now mirrors the function's own trigger logic (shouldAttemptSearchQA)
+    // instead of unconditionally matching everything — returns null for plain
+    // conversation, which brain.llm handles below.
+    { name: 'search.qa', test: () => shouldAttemptSearchQA(clean, lower), run: () => runSkillSearchQA({ clean, lower }) },
   ].sort((a, b) => skillScore(b.name) - skillScore(a.name));
 
   for (const c of candidates) {
@@ -1706,7 +1726,7 @@ async function runBrainFlow(userId, clean, image, { onToken } = {}) {
         orderBy: { createdAt: 'asc' },
         take:    20,
       });
-      history = dbMessages.map(m => ({ role: m.role, content: String(m.content || m.text || '') })).filter(m => m.content);
+      history = dbMessages.map(m => ({ role: m.role, content: String(m.text || '') })).filter(m => m.content);
     } catch (histErr) {
       console.warn('[brain.llm] history load failed (non-fatal):', histErr.message);
     }
@@ -1725,13 +1745,41 @@ async function runBrainFlow(userId, clean, image, { onToken } = {}) {
     }
 
     try {
-      await prisma.message.create({ data: { userId, role: 'user',      content: clean } });
-      await prisma.message.create({ data: { userId, role: 'assistant', content: said  } });
+      // ✅ FIX: Message.text is the real column (confirmed via schema.prisma) —
+      // 'content' never existed on this model, hence "missing text: String" every time
+      await prisma.message.create({ data: { userId, role: 'user',      text: clean } });
+      await prisma.message.create({ data: { userId, role: 'assistant', text: said  } });
     } catch (saveErr) {
       console.warn('[brain.llm] message save failed (non-fatal):', saveErr.message);
     }
 
+    // ✅ NEW: ActivitySignal for the proactive engine's rhythm-gap detection.
+    // Independent try/catch — must never block message persistence or the
+    // reply itself if this fails. Note: this only fires for the brain.llm
+    // path; a message fully handled by a skill (runSkillCandidates) doesn't
+    // pass through here, so skill-only turns won't currently generate a
+    // 'message_sent' signal — worth moving this to a shared spot both paths
+    // hit if that gap matters for the rhythm-gap scoring.
+    try {
+      await prisma.activitySignal.create({
+        data: {
+          userId,
+          kind: 'message_sent',
+          metadata: { length: clean.length },
+        },
+      });
+    } catch (signalErr) {
+      console.warn('[brain.llm] activitySignal save failed (non-fatal):', signalErr.message);
+    }
+
     processUserMemory(userId, clean).catch(() => {});
+
+    // ✅ NEW: periodic conversation-chunk summarization (Option #2 — long-term
+    // memory). Internally bails cheaply if there isn't enough uncompacted
+    // history yet, so this is safe to call every turn.
+    maybeCompactOldMessages({ userId, prisma }).catch(e =>
+      console.warn('[memory-compaction] call failed (non-fatal):', e.message)
+    );
 
     learnSkillHit('brain.llm', true);
     await logSkillFact(userId, 'brain.llm', true);

@@ -240,7 +240,19 @@ export async function runBrain({ userId, messages, prisma, image, maxToolHops = 
 
   // 2) User text
   const userText = getLastUserText(messages);
-  
+
+  // ✅ Latency fast-path: a bare greeting/ack ("salom", "rahmat", "ok") gets
+  // zero value from RAG fact retrieval or profile-summary loading — those
+  // add a full Prisma query + a live OpenAI embeddings round-trip + summary
+  // computation before the actual reply even starts generating. Detected
+  // here (before FAZA5 runs below) and used to both skip that block and
+  // force the fastest model, regardless of what SHERZ_BRAIN_MODEL is set to.
+  const trimmedUserText = (userText || '').trim();
+  const isTrivialGreeting =
+    trimmedUserText.length > 0 &&
+    trimmedUserText.length <= 24 &&
+    /^(salom|assalomu\s*alaykum|assalomu|salomlar|hi|hey|hello|ok|okay|rahmat|rahmat!|thanks|thank\s*you|ha|yo['’]q|xo['’]p|zo['’]r)[\s!.?]*$/i.test(trimmedUserText);
+
   // Oxirgi foydalanuvchi xabarini rasm bilan boyitish
    if (image && messages.length > 0) {
       const lastMsg = messages[messages.length - 1];
@@ -389,7 +401,7 @@ export async function runBrain({ userId, messages, prisma, image, maxToolHops = 
   // ✅ FAZA 5: Memory RAG + Profile Summary blok
   let faza5MemoryBlock = '';
   try {
-    if (prisma && userId) {
+    if (prisma && userId && !isTrivialGreeting) {
       const relevantFacts = await getRelevantFacts({
         userId,
         query: userText,
@@ -453,6 +465,14 @@ export async function runBrain({ userId, messages, prisma, image, maxToolHops = 
       })),
   ];
 
+  // ✅ Model routing: trivial greetings always get the fastest model,
+  // independent of whatever SHERZ_BRAIN_MODEL is configured to for normal
+  // conversation — this guarantees the fast path stays fast even if that
+  // env var points at something heavier.
+  const selectedModel = isTrivialGreeting
+    ? (process.env.SHERZ_FAST_MODEL || 'gpt-4o-mini')
+    : (process.env.SHERZ_BRAIN_MODEL || 'gpt-4.1-mini');
+
   try {
     const useStream = typeof onToken === 'function';
     let response;
@@ -468,7 +488,7 @@ export async function runBrain({ userId, messages, prisma, image, maxToolHops = 
       // a live preview and the returned `content` as authoritative.
       const stream = await openai.chat.completions.create(
         {
-          model: process.env.SHERZ_BRAIN_MODEL || 'gpt-4.1-mini',
+          model: selectedModel,
           messages: finalMessages,
           temperature: 0.6,
           stream: true,
@@ -490,7 +510,7 @@ export async function runBrain({ userId, messages, prisma, image, maxToolHops = 
     } else {
       response = await openai.chat.completions.create(
         {
-          model: process.env.SHERZ_BRAIN_MODEL || 'gpt-4.1-mini',
+          model: selectedModel,
           messages: finalMessages,
           temperature: 0.6,
         },

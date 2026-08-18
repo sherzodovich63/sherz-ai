@@ -127,22 +127,28 @@ function minutesSince(date, now = new Date()) {
 }
 
 export async function collectSignals({ userId, prisma, now = new Date(), timezone }) {
-  const [profile, lastState, lastInteractionAt] = await Promise.all([
+  const tzResolved = timezone || DEFAULT_TZ;
+
+  const [profile, lastState, lastInteractionAt, activity, relationshipToneState] = await Promise.all([
     getProfileSummary({ userId, prisma }).catch(() => null),
     getLastState({ userId, prisma }),
     getLastInteractionAt({ userId, prisma }),
+    getActivitySignalSummary({ userId, prisma, now, timezone: tzResolved }),
+    getRelationshipToneSignal({ userId, prisma, now }),
   ]);
 
-  const time = getLocalTimeMeta({ now, timezone: timezone || DEFAULT_TZ });
+  const time = getLocalTimeMeta({ now, timezone: tzResolved });
   const idleMin = minutesSince(lastInteractionAt, now);
 
   return {
     now,
     time,
-    idleMin, // ✅ endi null bo‘lib qolmasligi kerak (user yozgan bo‘lsa)
+    idleMin,
     lastInteractionAt,
     last_state: lastState.value,
     last_state_updatedAt: lastState.updatedAt,
     profile,
+    activity,               // ✅ NEW
+    relationshipToneState,  // ✅ NEW
   };
 }
