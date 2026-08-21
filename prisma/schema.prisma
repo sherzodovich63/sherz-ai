@@ -29,24 +29,29 @@ enum EnergyPref {
 
 // --- Mavjud modellar (tartib bilan) ---
 model User {
-  id        String    @id @default(cuid())
-  createdAt DateTime  @default(now())
-  name      String?
-  messages  Message[]
-  facts     Fact[]
+  id              String         @id @default(cuid())
+  createdAt       DateTime       @default(now())
+  name            String?
 
-  // ✅ FAZA 4 relations (qo‘shildi)
-  profile  UserProfile?
-  emotions EmotionLog[]
+  // Google Auth va login uchun shu 3 qator qo'shildi:
+  email           String?        @unique
+  passwordHash    String?
+  googleId        String?        @unique
+
+  messages        Message[]
+  facts           Fact[]
+
+  // ✅ FAZA 4 relations (qo'shildi)
+  profile         UserProfile?
+  emotions        EmotionLog[]
 
   // ✅ FAZA 6 LAB1: last_state relation (ixtiyoriy)
-  brainState BrainState?
+  brainState      BrainState?
 
   // ✅ SHERZ_HEART v2 relations
   toneEvents      ToneEvent[]
   activitySignals ActivitySignal[]
 }
-
 model Message {
   id        String   @id @default(cuid())
   userId    String

@@ -1399,13 +1399,47 @@ html.platform-ios body {
     }
     const GUEST_ID = getGuestId();
 
+    // ✅ Google OAuth redirect capture — routes/auth.js's /google/callback
+    // redirects back here as `/?token=...&name=...` after a successful login.
+    // Must run BEFORE the guest-token fetch below, or a real authenticated
+    // token would immediately get overwritten by a fresh guest one.
+    let isAuthenticatedUser = false;
+    (function consumeGoogleAuthRedirect(){
+      const params = new URLSearchParams(location.search);
+      const tokenFromRedirect = params.get('token');
+      if (!tokenFromRedirect) return;
+
+      isAuthenticatedUser = true;
+      guestToken = tokenFromRedirect; // same variable/localStorage key on
+      try{ localStorage.setItem('sherz_guest_token', tokenFromRedirect); }catch(e){}
+
+      const nameFromRedirect = params.get('name');
+      if (nameFromRedirect){
+        try{ localStorage.setItem('sherz_user_name', nameFromRedirect); }catch(e){}
+      }
+
+      // ✅ Strip the token out of the URL immediately — leaving a JWT
+      // sitting in the address bar risks it lingering in browser history
+      // or leaking via a Referer header if the page links out anywhere.
+      params.delete('token');
+      params.delete('name');
+      const cleanQuery = params.toString();
+      history.replaceState({}, '', location.pathname + (cleanQuery ? '?' + cleanQuery : '') + location.hash);
+    })();
+
     // ✅ Guest auth — exchanges GUEST_ID for a real JWT so requests pass the
     // backend's authRequired check in production (see /api/auth/guest).
-    // Cached in localStorage so we don't re-fetch on every reload.
+    // Cached in localStorage so we don't re-fetch on every reload. Purely a
+    // fallback identity for unauthenticated visitors — a real Google-auth
+    // token (above) always takes precedence and is never overwritten by this.
     let guestToken = null;
-    try{ guestToken = localStorage.getItem('sherz_guest_token'); }catch(e){}
+    if (!isAuthenticatedUser){
+      try{ guestToken = localStorage.getItem('sherz_guest_token'); }catch(e){}
+    }
 
     async function fetchGuestToken(){
+      // A real authenticated token should never be replaced by a guest one.
+      if (isAuthenticatedUser && guestToken) return guestToken;
       try{
         const r = await fetch(apiUrl('/api/auth/guest'), {
           method: 'POST',
@@ -1425,6 +1459,63 @@ html.platform-ios body {
     // Kick off immediately on load so a token is likely ready before the
     // first message send, without blocking anything else from running
     const guestTokenReady = fetchGuestToken();
+
+    // ✅ Sign out — clears the real token and reverts to guest identity.
+    // Exposed on window so it can be wired to a UI button.
+    window.__signOut = function(){
+      isAuthenticatedUser = false;
+      guestToken = null;
+      try{
+        localStorage.removeItem('sherz_guest_token');
+        localStorage.removeItem('sherz_user_name');
+      }catch(e){}
+      location.reload(); // simplest correct way to fully reset in-memory state
+    };
+
+    // ✅ Sign in with Google — full-page redirect into the OAuth flow.
+    window.__signInWithGoogle = function(){
+      location.href = apiUrl('/api/auth/google');
+    };
+
+    // ✅ Wire the pre-built auth UI shell (#guestView / #userView) and fetch
+    // the full profile via /api/auth/me — the OAuth redirect only carries
+    // token+name, not email, so this is the only way to populate userEmail.
+    async function updateAuthUI(){
+      const guestView = $('guestView');
+      const userView  = $('userView');
+      if (!guestView || !userView) return;
+
+      if (!isAuthenticatedUser){
+        guestView.style.display = '';
+        userView.style.display  = 'none';
+        return;
+      }
+
+      guestView.style.display = 'none';
+      userView.style.display  = '';
+
+      let cachedName = null;
+      try{ cachedName = localStorage.getItem('sherz_user_name'); }catch(e){}
+      if (cachedName && $('userName')) $('userName').textContent = cachedName;
+
+      try{
+        const token = await guestTokenReady;
+        const r = await fetch(apiUrl('/api/auth/me'), {
+          headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        });
+        const data = await r.json().catch(() => ({}));
+        if (r.ok && data.ok && data.user){
+          if ($('userName'))  $('userName').textContent  = data.user.name  || cachedName || 'User';
+          if ($('userEmail')) $('userEmail').textContent = data.user.email || '';
+        }
+      }catch(e){
+        console.warn('[auth] /api/auth/me fetch failed (non-fatal):', e.message);
+      }
+    }
+    updateAuthUI();
+
+    $('googleLoginBtn')?.addEventListener('click', () => window.__signInWithGoogle());
+    $('logoutBtn')?.addEventListener('click', () => window.__signOut());
 
     // ✅ Every authenticated request should go through this instead of a bare
     // fetch() — attaches Authorization: Bearer <token> automatically, and if

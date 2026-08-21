@@ -70,6 +70,32 @@ function elCfg()  { if (_elCfg  === undefined) _elCfg  = loadElevenLabsConfig();
 function oaiCfg() { if (_oaiCfg === undefined) _oaiCfg = loadOpenAITTSConfig();  return _oaiCfg; }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// STARTUP LOG — resolves + prints the active ElevenLabs voice/model (and OpenAI
+// fallback voice/model) the moment this module is imported by server.js, i.e.
+// at boot. Never logs the API key itself. This is the ONLY way to know what
+// Render is actually using without opening its dashboard.
+// ═══════════════════════════════════════════════════════════════════════════════
+(function logTTSStartupConfig() {
+  const el = elCfg();
+  if (el) {
+    console.log(`[tts] ElevenLabs configured — voiceId=${el.voiceId}, model=${el.model}`);
+  } else {
+    console.log('[tts] ElevenLabs NOT configured (ELEVENLABS_API_KEY missing/invalid) — will use OpenAI TTS fallback if available');
+  }
+
+  const oai = oaiCfg();
+  if (oai) {
+    console.log(`[tts] OpenAI TTS fallback configured — voice=${oai.voice}, model=${oai.model}`);
+  } else {
+    console.log('[tts] OpenAI TTS fallback NOT configured (OPENAI_API_KEY missing/invalid)');
+  }
+
+  if (!el && !oai) {
+    console.warn('[tts] ⚠️ NO TTS provider configured at all — every /api/tts request will fail until at least one API key is set');
+  }
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // ERROR CLASSIFICATION
 // ═══════════════════════════════════════════════════════════════════════════════
 

@@ -215,7 +215,8 @@ export function authRouter(prisma) {
   // Google redirects here after user approves. We:
   //   1. Exchange the auth code for tokens
   //   2. Fetch the user's Google profile (email, name, picture)
-  //   3. Upsert the user in Prisma (create on first login, update on return)
+  //   3. Find the matching user (googleId first, email fallback) and
+  //      create/update/link accordingly
   //   4. Sign a SHERZ JWT and redirect to the frontend with it as a query param
   // ──────────────────────────────────────────────────────────────
   router.get('/google/callback', async (req, res) => {
@@ -253,22 +254,43 @@ export function authRouter(prisma) {
       const profile = await profileRes.json();
       if (!profile.email) throw new Error('Google did not return an email address');
 
-      // ── Step 3: Upsert user in Prisma ────────────────────────
-      // Using googleId as the stable identifier so the same Google account
-      // always maps to the same SHERZ user, even if they change their email.
-      const user = await prisma.user.upsert({
-        where:  { email: profile.email },
-        update: {
-          name:     profile.name  || profile.email.split('@')[0],
-          googleId: profile.sub,
-        },
-        create: {
-          email:    profile.email,
-          name:     profile.name  || profile.email.split('@')[0],
-          googleId: profile.sub,
-          // passwordHash left null — Google users don't have a password
-        },
-      });
+      // ── Step 3: Find existing user — googleId first, email as fallback ──
+      // ✅ FIX: upsert() can only key on ONE unique field, so "try googleId,
+      // fall back to email" has to be an explicit two-step lookup instead.
+      // googleId is checked first because it's the stable identifier — this
+      // is what makes a returning user match correctly even if their Google
+      // account's email has changed since last login. The email lookup only
+      // exists to LINK an existing email/password account the first time
+      // that same person logs in via Google.
+      let user = await prisma.user.findUnique({ where: { googleId: profile.sub } });
+
+      if (!user) {
+        user = await prisma.user.findUnique({ where: { email: profile.email } });
+      }
+
+      if (user) {
+        // Existing user (found via either lookup) — refresh their googleId
+        // (backfills it the first time an email/password user links Google;
+        // no-op if already set) and sync their current name/email from Google.
+        user = await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            googleId: profile.sub,
+            name:     profile.name || user.name || profile.email.split('@')[0],
+            email:    profile.email || user.email,
+          },
+        });
+      } else {
+        // Genuinely new user
+        user = await prisma.user.create({
+          data: {
+            email:    profile.email,
+            name:     profile.name || profile.email.split('@')[0],
+            googleId: profile.sub,
+            // passwordHash left null — Google users don't have a password
+          },
+        });
+      }
 
       // ── Step 4: Sign SHERZ JWT ────────────────────────────────
       const token = signJwt({ id: user.id, email: user.email, name: user.name });
