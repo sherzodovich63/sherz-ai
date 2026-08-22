@@ -1375,6 +1375,10 @@ html.platform-ios body {
         : 'https://sherz-ai.onrender.com'
     };
     const apiUrl = (path) => `${CONFIG.API_URL}${path}`;
+    // ✅ Exposed so script.js (separate SSE implementation) can resolve the
+    // real Render origin instead of hitting a relative path on Vercel.
+    window.apiUrl = apiUrl;
+    window.CONFIG = CONFIG;
 
     // ✅ Guest session identity — every visitor gets their own isolated
     // userId instead of sharing the old hardcoded 'u1'. Persisted in
@@ -2648,7 +2652,11 @@ html.platform-ios body {
       const fd = new FormData();
       const ext = (blob.type.split('/')[1] || 'mp4').split(';')[0];
       fd.append('file', blob, `voice.${ext}`);
-      fd.append('lang', 'uz');
+      // ✅ FIX: removed fd.append('lang', 'uz') — was forcing Whisper to
+      // assume Uzbek for every recording regardless of what was actually
+      // spoken, causing garbage transcriptions for English/other languages.
+      // Let the backend Whisper call auto-detect (omit `language` in the
+      // OpenAI request, or pass language: undefined).
       return fd;
     };
 

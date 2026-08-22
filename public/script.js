@@ -902,6 +902,15 @@ function unlockAudio() {
 //    human-readable network error messages, auto-send on result
 // ═══════════════════════════════════════════════════════════════════════════
 (function setupMic() {
+  // ✅ FIX: index.html already owns #mic with the modern getUserMedia +
+  // MediaRecorder -> /api/stt (Whisper) pipeline. This legacy function also
+  // bound a click listener to the SAME button using the deprecated browser
+  // webkitSpeechRecognition API hardcoded to 'uz-UZ' — both listeners fired
+  // on every click, so the uz-UZ browser recognizer was fighting the real
+  // Whisper flow for the mic and throwing its own errors regardless of what
+  // language was actually spoken. Disabled in favor of index.html's flow.
+  return;
+
   const micBtn  = document.getElementById('mic')  || document.getElementById('mic2');
   const stopBtn = document.getElementById('micStop');
   if (!micBtn) return;
