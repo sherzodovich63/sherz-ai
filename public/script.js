@@ -161,10 +161,13 @@ if (removeImageBtn) {
 }
 
 // logging (oldingi <pre id="log"> ichiga yozadi)
-const logEl = $("#log");
+const logEl = $("#log"); // ⚠️ this IS the live chat feed — kept only for the Clear button below
 const log = (m) => {
-  if (!logEl) return;
-  logEl.textContent = (m ? m + "\n" : "") + logEl.textContent;
+  // ✅ FIX: #log/logEl is the actual visible chat <main class="feed">, not a
+  // debug console. Writing status text into it via .textContent was
+  // clobbering the chat and leaving lines like "SSE error (auto-retry)"
+  // permanently stuck on screen. Debug output now goes to the console only.
+  if (m) console.log('[sherz]', m);
 };
 
 const sendBtn = $("#send");
