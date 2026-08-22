@@ -1358,6 +1358,12 @@ html.platform-ios body {
     </div>
 
   <script>
+  (function(){
+    // ✅ $ defined first, function-scoped to this block only — must not leak
+    // as a shared global lexical binding (it would otherwise shadow
+    // script.js's own window.$ querySelector helper; see script.js:3).
+    const $ = (id) => document.getElementById(id);
+
     // ✅ Deployment config — backend origin.
     // '' (same-origin/relative paths) is correct for local dev, where
     // server.js serves this file directly. Once the frontend is deployed on
@@ -1542,7 +1548,6 @@ html.platform-ios body {
       return r;
     }
 
-    const $ = (id) => document.getElementById(id);
     const feed = $('log');
 
     // ✅ Hard guarantee: the mic engine must never start before the user has
@@ -2862,6 +2867,7 @@ function setMoodUI(moodObj){
 // init default
 setMoodUI({ mood: 'Calm', state: 'Neutral' });
 
+  })();
   </script>
 
   <script src="/script.js" defer></script>
