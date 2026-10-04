@@ -71,10 +71,10 @@ function makeHelmet() {
     directives: {
       "default-src": ["'self'"],
       "img-src": ["'self'", "data:", "https:"],
-      "style-src": ["'self'", "'unsafe-inline'"],
+      "style-src": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       "connect-src": ["'self'", "https:", "http:"], // Google/Wiki/SerpAPI/fetch uchun
       "media-src": ["'self'", "data:", "blob:"],  // ✅ FIX: blob: needed for TTS Blob URL audio playback
-      "font-src": ["'self'", "data:"],
+      "font-src": ["'self'", "data:", "https://fonts.gstatic.com"],
       // Agar UI CDN script ishlatsa, devda inline ga ruxsat
       ...(isProd
         ? { "script-src": ["'self'"] }
@@ -1584,6 +1584,24 @@ async function ensureGuestUser(userId) {
   }
 }
 
+// ── persistSkillTurn: message persistence for the SKILL-handled path ──
+// runBrainFlow() already saves both sides of a turn internally (see its own
+// prisma.message.create() calls) for messages that reach the LLM. But
+// /api/chat and /api/chat-stream both return EARLY when a skill answers
+// directly (runSkillCandidates returns truthy) — runBrainFlow is never
+// called in that case, so that turn was never being saved at all. This
+// covers that gap with the same ensureGuestUser-first, non-fatal-on-failure
+// pattern runBrainFlow already uses, so both paths behave consistently.
+async function persistSkillTurn(userId, userText, aiText) {
+  try {
+    await ensureGuestUser(userId);
+    await prisma.message.create({ data: { userId, role: 'user',      text: userText } });
+    await prisma.message.create({ data: { userId, role: 'assistant', text: aiText  } });
+  } catch (saveErr) {
+    console.warn('[persistSkillTurn] message save failed (non-fatal):', saveErr.message);
+  }
+}
+
 // ── Shared: skill-candidate matching (used by /handle-intent and /api/chat-stream) ──
 // Pure extraction from /handle-intent — logic is byte-for-byte identical to
 // before, just made callable from more than one route.
@@ -1707,6 +1725,25 @@ async function runSkillCandidates(clean, lower, userId) {
   return null; // no skill matched — caller falls through to brain.llm
 }
 
+// ── Quota/rate-limit detection + hard timeout guard ──
+// Covers both: (a) OpenAI errors that DO surface with a 429 status, and
+// (b) the OpenAI SDK's own internal retry/backoff on 429 silently eating
+// many seconds before it ever rejects — which is what actually produces an
+// "indefinitely hanging" SSE connection, not just an uncaught rejection.
+const QUOTA_FALLBACK_MSG = "AI xizmatida balans yetarli emas yoki API ulanishida cheklov bor";
+function isQuotaOrRateLimitError(err) {
+  return err?.status === 429
+    || err?.response?.status === 429
+    || /\b429\b|quota|rate.?limit/i.test(err?.message || '');
+}
+function withFallbackTimeout(promise, ms, fallbackValue) {
+  let timer;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(fallbackValue), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 // ── Shared: LLM brain fallback flow (used by /handle-intent and /api/chat-stream) ──
 // Pure extraction from /handle-intent's brain.llm block — same history load,
 // same runBrain call, same persistence, same memory extraction, same error
@@ -1789,6 +1826,9 @@ async function runBrainFlow(userId, clean, image, { onToken } = {}) {
     console.error('[brain.llm] runBrain threw:', brainErr);
     learnSkillHit('brain.llm', false);
     await logSkillFact(userId, 'brain.llm', false);
+    if (isQuotaOrRateLimitError(brainErr)) {
+      return { said: QUOTA_FALLBACK_MSG };
+    }
     return { said: 'Kechirasiz, hozir javob bera olmayapman. Iltimos bir oz kutib qayta urinib ko\'ring.' };
   }
 }
@@ -1848,6 +1888,43 @@ app.post('/api/auth/guest', async (req, res) => {
     return res.status(500).json({ ok: false, error: 'guest auth failed' });
   }
 });
+
+// ── GET /api/chat/history: returns this user's saved messages ──
+// Follows the same auth convention as /api/chat below (req.user?.id when
+// authenticated, falling back to a query/body param for guests — dev mode
+// skips auth entirely per the /api middleware above, same as every other
+// route in this file). Ascending chronological order (oldest first), which
+// is what the frontend's local history array/pagination already expects.
+// Capped at 200 to avoid an unbounded query for a very long-running
+// conversation — the frontend does its own local pagination/lazy-load on
+// top of whatever this returns, so this cap isn't the only thing limiting
+// how much history is reachable, just how much comes down in one request.
+app.get('/api/chat/history', async (req, res) => {
+  try {
+    const userId = req.user?.id || req.query?.userId || 'u1';
+    if (!userId) {
+      return res.status(400).json({ ok: false, error: 'userId required' });
+    }
+
+    const dbMessages = await prisma.message.findMany({
+      where:   { userId },
+      orderBy: { createdAt: 'asc' },
+      take:    200,
+    });
+
+    const messages = dbMessages.map(m => ({
+      role: m.role === 'assistant' ? 'ai' : 'user',
+      text: m.text,
+      ts:   m.createdAt.getTime(),
+    }));
+
+    return res.json({ ok: true, messages });
+  } catch (e) {
+    console.error('/api/chat/history error:', e);
+    return res.status(500).json({ ok: false, error: 'history fetch failed' });
+  }
+});
+
 app.post('/api/chat', async (req, res) => {
   try {
     // Extract text from both naming conventions used by the frontend
@@ -1866,7 +1943,14 @@ app.post('/api/chat', async (req, res) => {
       said = runSkillGreeting().said;
     } else {
       const skillResult = await runSkillCandidates(clean, lower, userId);
-      said = skillResult ? skillResult.said : (await runBrainFlow(userId, clean, req.body?.image)).said;
+      if (skillResult) {
+        said = skillResult.said;
+        // ✅ NEW: this turn never reached runBrainFlow (which does its own
+        // saving), so without this it was never persisted at all.
+        await persistSkillTurn(userId, clean, said);
+      } else {
+        said = (await runBrainFlow(userId, clean, req.body?.image)).said;
+      }
     }
 
     return res.json({ ok: true, reply: said, said });
@@ -1921,18 +2005,38 @@ app.post('/api/chat-stream', async (req, res) => {
     if (skillResult) {
       send('chunk', { delta: skillResult.said });
       send('done', { text: skillResult.said });
+      // ✅ NEW: same gap as /api/chat — a skill-handled turn here never
+      // reached runBrainFlow, so it was never being persisted.
+      await persistSkillTurn(userId, clean, skillResult.said);
       return res.end();
     }
 
-    const { said } = await runBrainFlow(userId, clean, req.body?.image, {
-      onToken: (delta) => { if (!closed) send('chunk', { delta }); },
-    });
+    // ✅ FIX (Issue 1): hard 25s ceiling on the brain call. runBrainFlow's own
+    // catch already handles a 429 that surfaces as a rejection, but the
+    // OpenAI SDK's internal retry/backoff on 429 can silently stall well
+    // past that without ever rejecting — this is what was actually hanging
+    // the SSE connection. On timeout we resolve with the same fallback
+    // message instead of leaving the client waiting forever.
+    const { said } = await withFallbackTimeout(
+      runBrainFlow(userId, clean, req.body?.image, {
+        onToken: (delta) => { if (!closed) send('chunk', { delta }); },
+      }),
+      25000,
+      { said: QUOTA_FALLBACK_MSG }
+    );
 
     if (!closed) send('done', { text: said });
 
   } catch (e) {
     console.error('/api/chat-stream error:', e);
-    if (!closed) send('error', { error: e.message || 'stream failed' });
+    // ✅ FIX (Issue 1): always resolve the stream with a 'done' event (not
+    // just 'error') so the client's UI — which listens for 'done' to stop
+    // its loading state — never hangs waiting on an event it doesn't handle.
+    const fallback = isQuotaOrRateLimitError(e) ? QUOTA_FALLBACK_MSG : (e.message || 'stream failed');
+    if (!closed) {
+      send('error', { error: fallback });
+      send('done', { text: fallback });
+    }
   } finally {
     clearInterval(keepAlive);
     if (!closed) { try { res.end(); } catch (e) {} }

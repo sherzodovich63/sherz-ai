@@ -1,6 +1,15 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import tz from 'dayjs/plugin/timezone.js';
+// ✅ FIX: this was a hardcoded stub (`() => ({})`) always returning an
+// empty object — not a crash, but silently dead "rhythm-gap detection".
+// Now imports the real implementation.
+import { getActivitySignalSummary } from './activitySignal.js';
+// ✅ FIX: this is the actual reported bug — getRelationshipToneSignal was
+// called below but never imported or defined anywhere in this file (or
+// server.js), throwing "getRelationshipToneSignal is not defined" on every
+// proactive tick.
+import { getRelationshipToneSignal } from './relationshipTone.js';
 
 dayjs.extend(utc);
 dayjs.extend(tz);
@@ -133,7 +142,12 @@ export async function collectSignals({ userId, prisma, now = new Date(), timezon
     getProfileSummary({ userId, prisma }).catch(() => null),
     getLastState({ userId, prisma }),
     getLastInteractionAt({ userId, prisma }),
-    getActivitySignalSummary({ userId, prisma, now, timezone: tzResolved }),
+    // ✅ FIX: the real getActivitySignalSummary(userId, lookbackDays) takes
+    // positional args, not an options object — the old call here would have
+    // passed the whole {userId,prisma,...} object AS userId, so
+    // `where: { userId: <object> } }` would never match a real row and
+    // this always silently returned empty activity data, no error raised.
+    getActivitySignalSummary(userId),
     getRelationshipToneSignal({ userId, prisma, now }),
   ]);
 
