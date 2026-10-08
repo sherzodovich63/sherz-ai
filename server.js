@@ -25,6 +25,7 @@ import { saveMemoryFactsForUser } from './nlu/saveMemoryFacts.js';
 import { addTodo, listTodos } from './brain/todoService.js';
 import { runSkill } from './brain/skillsRouter.js';
 import { runBrain } from './brain/brain.js'; // ✅ FIX: Wire the GPT brain
+import { runExpertTurn } from './brain/expertTurn.js'; // ✅ NEW: Expert Mode tool-calling loop
 import { openai } from './llm/openaiClient.js'; // ✅ FIX: was referenced (search.qa synthesis) but never imported — latent ReferenceError
 import { startProactiveRunner } from './proactive/proactiveRunner.js';
 import { streamRoute } from './routes/stream.js';
@@ -1749,7 +1750,7 @@ function withFallbackTimeout(promise, ms, fallbackValue) {
 // same runBrain call, same persistence, same memory extraction, same error
 // fallback strings. Accepts an optional onToken callback; when provided,
 // runBrain streams real OpenAI tokens through it as they arrive.
-async function runBrainFlow(userId, clean, image, { onToken } = {}) {
+async function runBrainFlow(userId, clean, image, { onToken, expertMode = false } = {}) {
   console.log(`[brain.llm] No specialist matched for userId=${userId}, routing to GPT brain`);
   try {
     // 🟢 Guest foydalanuvchini bazada tayyorlash (FK xatosini oldini olish uchun)
@@ -1773,7 +1774,13 @@ async function runBrainFlow(userId, clean, image, { onToken } = {}) {
       { role: 'user', content: clean },
     ];
 
-    const brainResult = await runBrain({ userId, messages, prisma, image: image ?? null, onToken });
+    // ✅ NEW: Expert Mode branches to runExpertTurn() here — everything
+    // above (history load) and below (persistence, ActivitySignal, memory
+    // compaction) stays identical for both paths; only which function
+    // actually talks to the model differs.
+    const brainResult = expertMode
+      ? await runExpertTurn({ userId, messages, prisma, image: image ?? null, onToken })
+      : await runBrain({ userId, messages, prisma, image: image ?? null, onToken });
 
     const said = brainResult?.content || brainResult?.said || null;
     if (!said) {
@@ -2017,11 +2024,22 @@ app.post('/api/chat-stream', async (req, res) => {
     // past that without ever rejecting — this is what was actually hanging
     // the SSE connection. On timeout we resolve with the same fallback
     // message instead of leaving the client waiting forever.
+    // ✅ NEW: Expert Mode flag from the client — forwarded straight through
+    // to runBrainFlow, which branches internally.
+    const expertMode = Boolean(req.body?.expertMode);
+
+    // ✅ NEW: Expert Mode gets a longer ceiling — a multi-hop tool-calling
+    // turn (web_fetch, code_analysis, etc. across up to 5 hops) can
+    // legitimately take longer than the 25s tuned for a single normal-chat
+    // call. Normal chat keeps the original 25s unchanged.
+    const brainTimeoutMs = expertMode ? 90000 : 25000;
+
     const { said } = await withFallbackTimeout(
       runBrainFlow(userId, clean, req.body?.image, {
         onToken: (delta) => { if (!closed) send('chunk', { delta }); },
+        expertMode,
       }),
-      25000,
+      brainTimeoutMs,
       { said: QUOTA_FALLBACK_MSG }
     );
 

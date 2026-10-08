@@ -21,6 +21,17 @@ export async function runProactiveDecisionOnce({
   now = new Date(),
   config,
   deliverFn, // async ({ userId, text, meta }) => void
+  onDecision, // ✅ FIX: async ({ decision, signals }) => void — called right after
+              // decideProactive() resolves, regardless of shouldMessage. Added
+              // because proactiveRunner.js's runBoundaryAwareProactiveOnce()
+              // already calls this function passing onDecision, relying on it
+              // to capture latestDecision/latestSignals for its own LAB6
+              // boundary-aware delivery logic and event logging — but this
+              // parameter never existed, so that whole hand-off was silently
+              // doing nothing (no crash — onDecision just isn't a param here,
+              // so passing it was a no-op) and latestDecision stayed null
+              // forever, permanently blocking the "normal" proactive path
+              // (runner's step 6: `if (latestDecision?.shouldMessage)`).
 }) {
   const tickId = `P_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
   const t0 = Date.now();
@@ -61,6 +72,17 @@ export async function runProactiveDecisionOnce({
   } catch (e) {
     console.log(`❌ [${tickId}] decideProactive ERROR`, e?.message || e);
     return { ok: false, error: 'DECIDE_PROACTIVE_FAILED' };
+  }
+
+  // ✅ FIX: fire onDecision as soon as we have decision+signals, before the
+  // shouldMessage branch below — the runner needs this regardless of
+  // whether this function's own deliverFn path ends up doing anything.
+  if (onDecision) {
+    try {
+      await onDecision({ decision, signals });
+    } catch (e) {
+      console.log(`❌ [${tickId}] onDecision ERROR`, e?.message || e);
+    }
   }
 
   if (!decision.shouldMessage) {
@@ -111,54 +133,15 @@ export async function runProactiveDecisionOnce({
     console.log(`⚠️ [${tickId}] deliverFn MISSING -> message not pushed to UI`);
   }
 
-  // persist cooldown state
-  const isoNow = new Date(now).toISOString();
-
-  try {
-    await prisma.fact.create({
-      data: { userId, key: 'proactive_last_ping_at', value: isoNow, type: 'state' },
-    });
-    console.log(`💾 [${tickId}] fact saved: proactive_last_ping_at`, isoNow);
-  } catch (e) {
-    console.log(`❌ [${tickId}] fact save ERROR (proactive_last_ping_at)`, e?.message || e);
-  }
-
-  // daily count
-  let countFact;
-  try {
-    countFact = await prisma.fact.findFirst({
-      where: { userId, key: 'proactive_ping_count_day' },
-      orderBy: { updatedAt: 'desc' },
-      select: { id: true, value: true, updatedAt: true },
-    });
-
-    console.log(`🔢 [${tickId}] countFact loaded`, {
-      exists: Boolean(countFact),
-      value: countFact?.value,
-      updatedAt: countFact?.updatedAt ? new Date(countFact.updatedAt).toISOString() : null,
-    });
-  } catch (e) {
-    console.log(`❌ [${tickId}] countFact load ERROR`, e?.message || e);
-  }
-
-  let nextCount = 1;
-  if (countFact?.updatedAt) {
-    const sameDay =
-      countFact.updatedAt.getUTCFullYear() === now.getUTCFullYear() &&
-      countFact.updatedAt.getUTCMonth() === now.getUTCMonth() &&
-      countFact.updatedAt.getUTCDate() === now.getUTCDate();
-
-    nextCount = sameDay ? Number(countFact.value || 0) + 1 : 1;
-  }
-
-  try {
-    await prisma.fact.create({
-      data: { userId, key: 'proactive_ping_count_day', value: String(nextCount), type: 'state' },
-    });
-    console.log(`💾 [${tickId}] fact saved: proactive_ping_count_day`, nextCount);
-  } catch (e) {
-    console.log(`❌ [${tickId}] fact save ERROR (proactive_ping_count_day)`, e?.message || e);
-  }
+  // ✅ FIX: cooldown/daily-cap facts (proactive_last_ping_at,
+  // proactive_ping_count_day) are now written by proactiveRunner.js, only
+  // at its actual delivery points (permission/soft_presence/normal paths),
+  // not here — this function's deliverFn is always a no-op in the real
+  // wiring (LAB6 intercepts real delivery), so writing cooldown state here
+  // meant it fired on every shouldMessage=true regardless of whether LAB6
+  // later suppressed the message via respect mode. Per decision: the
+  // cooldown/cap budget should only be spent on messages that actually
+  // reach the user.
 
   console.log(`🏁 [${tickId}] DONE in ${Date.now() - t0}ms`);
 

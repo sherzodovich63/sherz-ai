@@ -240,7 +240,100 @@ export function getToolSchemas() {
         },
       },
     },
+
+    // ─────────────────────────────
+    // 10) ✅ NEW (Expert Mode): CODE ANALYSIS
+    // ─────────────────────────────
+    {
+      type: "function",
+      function: {
+        name: "code_analysis",
+        description:
+          "Checks a code snippet's syntax validity (JavaScript/TypeScript only) and returns basic structural stats (line count, rough function/class counts). Does NOT execute the code — safe for untrusted input. This is syntax validation + stats only, not a full linter or security scanner.",
+        parameters: {
+          type: "object",
+          properties: {
+            code: { type: "string", description: "The code snippet to analyze." },
+            language: {
+              type: "string",
+              enum: ["javascript", "typescript"],
+              description: "Only javascript/typescript syntax checking is currently supported. Default: javascript.",
+            },
+          },
+          required: ["code"],
+          additionalProperties: false,
+        },
+      },
+    },
+
+    // ─────────────────────────────
+    // 11) ✅ NEW (Expert Mode): WEB FETCH
+    // ─────────────────────────────
+    {
+      type: "function",
+      function: {
+        name: "web_fetch",
+        description:
+          "Fetches a public web page and returns its readable text content (HTML tags stripped). Blocks requests to private/internal/local network addresses. Use for looking up current information, documentation, or external data the user references.",
+        parameters: {
+          type: "object",
+          properties: {
+            url: { type: "string", description: "Full URL to fetch, must start with http:// or https://." },
+          },
+          required: ["url"],
+          additionalProperties: false,
+        },
+      },
+    },
   ];
+}
+
+// ─────────────────────────────
+// ✅ NEW (Expert Mode) helpers for web_fetch
+// ─────────────────────────────
+
+// Basic SSRF guard — blocks the obvious local/internal targets (localhost,
+// private IP ranges, the common cloud metadata endpoint). This is a
+// first-line denylist, NOT a complete SSRF defense: it doesn't resolve DNS
+// to catch rebinding attacks, doesn't cover every private range, and isn't
+// a substitute for real network-level egress restrictions in production.
+// Good enough to block naive/accidental internal access; not a security
+// boundary to rely on alone for a public-facing Expert Mode.
+function isSafeFetchUrl(urlString) {
+  let u;
+  try {
+    u = new URL(urlString);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+
+  const host = u.hostname.toLowerCase();
+  const blockedHosts = ["localhost", "0.0.0.0", "127.0.0.1", "169.254.169.254"];
+  if (blockedHosts.includes(host)) return false;
+  if (host.startsWith("127.") || host.startsWith("10.") || host.startsWith("192.168.")) return false;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return false;
+  if (host.endsWith(".local") || host.endsWith(".internal")) return false;
+
+  return true;
+}
+
+// Very basic HTML-to-text: strips script/style blocks and tags, decodes a
+// handful of common entities, collapses whitespace. No external dependency
+// — good enough for "give the model readable text", not a faithful content
+// extractor (won't handle complex layouts, tables, etc. gracefully).
+function stripHtml(html) {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 // ❗ ASOSIY FUNKSIYA – tool bajarilishi
@@ -638,6 +731,112 @@ export async function executeTool(name, args, { userId, prisma }) {
           intensity,
         },
       };
+    }
+
+    // ─────────────────────────────
+    // 10) ✅ NEW (Expert Mode): CODE ANALYSIS
+    // ─────────────────────────────
+    case "code_analysis": {
+      const code = String(args?.code || "");
+      const language = String(args?.language || "javascript").toLowerCase();
+
+      if (!code.trim()) return { ok: false, error: "code is required for code_analysis" };
+
+      if (language !== "javascript" && language !== "typescript") {
+        return {
+          ok: true,
+          name,
+          result: {
+            syntaxValid: null,
+            note: `Syntax checking for '${language}' isn't supported yet — only javascript/typescript. Returned structural stats only.`,
+            lineCount: code.split("\n").length,
+            charCount: code.length,
+          },
+        };
+      }
+
+      let syntaxValid = true;
+      let syntaxError = null;
+      try {
+        // Safe: `new Function(code)` only PARSES the code to check syntax
+        // — it constructs a function object but never CALLS it, so the
+        // code body never executes. Does NOT catch TypeScript-only syntax
+        // (types, interfaces) — those report as syntax errors even when
+        // valid TS. True TS checking would need the TypeScript compiler
+        // package, not included here.
+        new Function(code);
+      } catch (e) {
+        syntaxValid = false;
+        syntaxError = e.message;
+      }
+
+      return {
+        ok: true,
+        name,
+        result: {
+          syntaxValid,
+          syntaxError,
+          lineCount: code.split("\n").length,
+          charCount: code.length,
+          roughFunctionCount: (code.match(/\bfunction\b|=>\s*{|=>\s*\(/g) || []).length,
+          roughClassCount: (code.match(/\bclass\s+\w+/g) || []).length,
+          todoComments: (code.match(/\/\/\s*TODO|\/\*\s*TODO/gi) || []).length,
+          note: "Syntax validation + basic structural stats only — not a full linter, type-checker, or security scanner.",
+        },
+      };
+    }
+
+    // ─────────────────────────────
+    // 11) ✅ NEW (Expert Mode): WEB FETCH
+    // ─────────────────────────────
+    case "web_fetch": {
+      const url = String(args?.url || "").trim();
+      if (!url) return { ok: false, error: "url is required for web_fetch" };
+
+      if (!isSafeFetchUrl(url)) {
+        return { ok: false, error: "URL blocked — only public http(s) URLs are allowed (no local/internal addresses)." };
+      }
+
+      const MAX_CHARS = 500000;
+      const TIMEOUT_MS = 8000;
+
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+        const res = await fetch(url, {
+          signal: controller.signal,
+          redirect: "follow",
+          headers: { "User-Agent": "SherzAI-ExpertMode/1.0 (+web_fetch tool)" },
+        });
+        clearTimeout(timer);
+
+        if (!res.ok) {
+          return { ok: false, error: `Fetch failed: HTTP ${res.status}` };
+        }
+
+        const contentType = res.headers.get("content-type") || "";
+        const raw = await res.text();
+        const capped = raw.slice(0, MAX_CHARS);
+
+        const isHtml = contentType.includes("text/html");
+        const text = isHtml ? stripHtml(capped) : capped;
+        const excerpt = text.slice(0, 4000);
+
+        return {
+          ok: true,
+          name,
+          result: {
+            url,
+            contentType,
+            excerpt,
+            truncated: text.length > 4000,
+          },
+        };
+      } catch (e) {
+        const timedOut = e.name === "AbortError";
+        return { ok: false, error: timedOut ? "Fetch timed out" : `Fetch error: ${e.message}` };
+      }
     }
 
     // ─────────────────────────────

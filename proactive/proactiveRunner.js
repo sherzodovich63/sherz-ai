@@ -50,6 +50,55 @@ async function getStyleContext({ prisma, userId }) {
 }
 
 /**
+ * ✅ FIX: relocated from proactiveDecisionEngine.js. That function's
+ * deliverFn is always a no-op in this wiring (LAB6 intercepts real
+ * delivery), so writing cooldown/daily-cap facts there meant the budget
+ * was consumed on every shouldMessage=true, even when LAB6 went on to
+ * suppress the message via respect mode. Called from here instead, only
+ * at the three branches below that actually call deliverProactiveToUser()
+ * — so the cooldown/cap genuinely tracks delivered messages only.
+ */
+async function recordProactiveSent({ prisma, userId, now = new Date() }) {
+  const isoNow = new Date(now).toISOString();
+
+  try {
+    await prisma.fact.create({
+      data: { userId, key: 'proactive_last_ping_at', value: isoNow, type: 'state' },
+    });
+  } catch (e) {
+    console.log('❌ fact save ERROR (proactive_last_ping_at)', e?.message || e);
+  }
+
+  let countFact;
+  try {
+    countFact = await prisma.fact.findFirst({
+      where: { userId, key: 'proactive_ping_count_day' },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true, value: true, updatedAt: true },
+    });
+  } catch (e) {
+    console.log('❌ countFact load ERROR', e?.message || e);
+  }
+
+  let nextCount = 1;
+  if (countFact?.updatedAt) {
+    const sameDay =
+      countFact.updatedAt.getUTCFullYear() === now.getUTCFullYear() &&
+      countFact.updatedAt.getUTCMonth() === now.getUTCMonth() &&
+      countFact.updatedAt.getUTCDate() === now.getUTCDate();
+    nextCount = sameDay ? Number(countFact.value || 0) + 1 : 1;
+  }
+
+  try {
+    await prisma.fact.create({
+      data: { userId, key: 'proactive_ping_count_day', value: String(nextCount), type: 'state' },
+    });
+  } catch (e) {
+    console.log('❌ fact save ERROR (proactive_ping_count_day)', e?.message || e);
+  }
+}
+
+/**
  * ✅ LAB5 helper: ProactiveEvent log (decision)
  * - shouldMessage true/false bo‘lsa ham yozadi
  * - LAB6: kind, boundary fields ham safe update qilamiz (migrate bo‘lmasa crash qilmaydi)
@@ -286,6 +335,7 @@ logBoundaryDecision({ userId, boundary, policyBefore, policyAfter: null });
 
   const cause = boundary?.cause?.cause || null;
   const conf = boundary?.cause?.confidence ?? null;
+  const nowForCooldown = latestSignals?.now ? new Date(latestSignals.now) : new Date();
 
   // 3) Permission check path
   if (boundary?.permissionNeeded) {
@@ -325,6 +375,9 @@ logBoundaryDecision({ userId, boundary, policyBefore, policyAfter: null });
 
     await deliverProactiveToUser({ prisma, userId, text: msg, meta: finalMeta });
     await markProactiveSent({ prisma, proactiveEventId });
+    // ✅ FIX: cooldown only consumed on confirmed delivery (this branch
+    // delivers a real message, so it counts).
+    await recordProactiveSent({ prisma, userId, now: nowForCooldown });
 
     await applyBoundaryOutcomeToPolicy(userId, {
       boundaryDecision: 'respect',
@@ -352,6 +405,9 @@ logBoundaryDecision({ userId, boundary, policyBefore, policyAfter: null });
         respectUntil: boundary?.respectUntil || null,
       },
     });
+
+    // ✅ FIX: no message was delivered — cooldown/cap budget is NOT
+    // consumed here. This is the exact case decision #1 was about.
 
     await applyBoundaryOutcomeToPolicy(userId, {
       boundaryDecision: 'respect',
@@ -401,6 +457,8 @@ logBoundaryDecision({ userId, boundary, policyBefore, policyAfter: null });
 
     await deliverProactiveToUser({ prisma, userId, text: msg, meta: finalMeta });
     await markProactiveSent({ prisma, proactiveEventId });
+    // ✅ FIX: cooldown only consumed on confirmed delivery.
+    await recordProactiveSent({ prisma, userId, now: nowForCooldown });
 
     await applyBoundaryOutcomeToPolicy(userId, {
       boundaryDecision: 'soft_presence',
@@ -441,6 +499,8 @@ logBoundaryDecision({ userId, boundary, policyBefore, policyAfter: null });
 
     await deliverProactiveToUser({ prisma, userId, text: msg, meta: finalMeta });
     await markProactiveSent({ prisma, proactiveEventId });
+    // ✅ FIX: cooldown only consumed on confirmed delivery.
+    await recordProactiveSent({ prisma, userId, now: nowForCooldown });
 
     return { sent: true, mode: 'normal', proactiveEventId };
   }
@@ -454,6 +514,9 @@ logBoundaryDecision({ userId, boundary, policyBefore, policyAfter: null });
       boundaryDecision: 'normal',
     },
   });
+
+  // ✅ FIX: no message delivered — no cooldown consumed (same reasoning as
+  // the respect-mode branch above).
 
   return { sent: false, mode: 'skip', proactiveEventId };
 }

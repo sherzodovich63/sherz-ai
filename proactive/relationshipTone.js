@@ -1,22 +1,23 @@
 // proactive/relationshipTone.js
 //
-// ⚠️ Built the same way activitySignal.js was: from the real ToneEvent
-// model in schema.prisma — trigger / fromState / toState / messageRef /
-// createdAt, an append-only log of state TRANSITIONS, not a stored
-// "current tone" column. "Current" relationship tone is therefore derived
-// as the toState of the most recent ToneEvent row, the standard way to
-// read current state out of an event-sourced log.
+// Built from the real ToneEvent model in schema.prisma — trigger /
+// fromState / toState / messageRef / createdAt, an append-only log of
+// state TRANSITIONS, not a stored "current tone" column. "Current"
+// relationship tone is derived as the toState of the most recent
+// ToneEvent row.
 //
-// ⚠️ I do NOT have proactiveDecisionEngine.js / proactivePolicy.js (the
-// actual consumers of collectSignals()'s relationshipToneState), so I
-// cannot confirm the exact property names they expect back. The shape
-// below is a reasonable, documented guess — mirroring activitySignal.js's
-// own return-shape style (current value + how-long-since + recent-window
-// counts) — not a verified contract. Check what the consumer actually
-// destructures and adjust the field names below if they don't line up;
-// this is the same caveat activitySignal.js's own header already flags.
+// ✅ FIX: field names below were renamed to match the real consumer,
+// proactivePolicy.js's parseRelationshipToneSignal(), now that it's been
+// seen directly — this file's original header flagged these as an
+// unverified guess pending that file. The real contract reads:
+// rt.current, rt.minutesSinceShift, rt.trigger (checking rt.current
+// against the literal strings 'guarded'/'direct'). Previously this
+// returned currentState/sinceMinutes/lastTrigger, which meant
+// parseRelationshipToneSignal()'s `if (!rt || !rt.current) return empty`
+// guard was always true — the whole signal was silently discarded on
+// every proactive tick, no crash, just permanently inert.
 //
-// ⚠️ Also async (queries Prisma) — the caller MUST `await` it.
+// Also async (queries Prisma) — the caller MUST `await` it.
 
 import { PrismaClient } from '@prisma/client';
 
@@ -29,8 +30,8 @@ const RECOVERY_TRIGGERS = new Set(['tension_dissolved', 'manual_reset']);
 
 /**
  * Summarizes a user's recent ToneEvent rows for the proactive engine's
- * relationship-tone scoring (e.g. "are we currently in a tense state, and
- * for how long").
+ * relationship-tone scoring (e.g. "are we currently in a guarded/direct
+ * state, and for how long").
  * @param {object} params
  * @param {string} params.userId
  * @param {import('@prisma/client').PrismaClient} [params.prisma] — reuses
@@ -40,10 +41,10 @@ const RECOVERY_TRIGGERS = new Set(['tension_dissolved', 'manual_reset']);
  * @param {number} [params.lookbackDays=14] how far back to count
  *   negative/recovery triggers for the recent-window counts
  * @returns {Promise<{
- *   currentState: string|null,
- *   lastTrigger: string|null,
+ *   current: string|null,
+ *   trigger: string|null,
  *   lastEventAt: Date|null,
- *   sinceMinutes: number|null,
+ *   minutesSinceShift: number|null,
  *   recentNegativeCount: number,
  *   recentRecoveryCount: number
  * }>}
@@ -51,10 +52,10 @@ const RECOVERY_TRIGGERS = new Set(['tension_dissolved', 'manual_reset']);
 export async function getRelationshipToneSignal({ userId, prisma: prismaArg, now = new Date(), lookbackDays = 14 } = {}) {
   const db = prismaArg || prisma;
   const empty = {
-    currentState: null,
-    lastTrigger: null,
+    current: null,
+    trigger: null,
     lastEventAt: null,
-    sinceMinutes: null,
+    minutesSinceShift: null,
     recentNegativeCount: 0,
     recentRecoveryCount: 0,
   };
@@ -77,7 +78,7 @@ export async function getRelationshipToneSignal({ userId, prisma: prismaArg, now
 
     if (!latest) return empty;
 
-    const sinceMinutes = Math.max(0, Math.round((now.getTime() - latest.createdAt.getTime()) / 60000));
+    const minutesSinceShift = Math.max(0, Math.round((now.getTime() - latest.createdAt.getTime()) / 60000));
 
     let recentNegativeCount = 0;
     let recentRecoveryCount = 0;
@@ -87,10 +88,10 @@ export async function getRelationshipToneSignal({ userId, prisma: prismaArg, now
     }
 
     return {
-      currentState: latest.toState,
-      lastTrigger: latest.trigger,
+      current: latest.toState,
+      trigger: latest.trigger,
       lastEventAt: latest.createdAt,
-      sinceMinutes,
+      minutesSinceShift,
       recentNegativeCount,
       recentRecoveryCount,
     };

@@ -2723,28 +2723,214 @@ html.platform-ios body {
       sseUserId = null;
     }
 
+
+// ── ✅ NEW: Proactive message notifications (glow, chime, browser notif, toast) ──
+// Three independent pieces, all triggered from addAiProactive() below:
+//  1. CSS (injected here rather than a separate stylesheet, since this was
+//     asked to live entirely in script.js) — a one-shot arrival pulse on
+//     the bubble itself, plus styles for the badge and the toast.
+//  2. A short synthesized chime via the Web Audio API — no audio file
+//     needed/guessed, and reuses the existing shared `ttsAudioCtx` instead
+//     of creating a second AudioContext (same reasoning as the comment
+//     already on that variable: browsers cap how many you can create).
+//  3. A native browser Notification, only fired when the tab is actually
+//     hidden/unfocused — never while the user is looking at it.
+//  4. A floating "come back to the bottom" toast, only shown if the user
+//     is scrolled up in the feed when a proactive message lands.
+
+(function setupProactiveNotifications(){
+  const styleTag = document.createElement('style');
+  styleTag.id = 'sherz-proactive-notify-styles';
+  styleTag.textContent = `
+    @keyframes sherzProactivePulse {
+      0%   { box-shadow: 0 0 0 0 rgba(167,139,250,0.0); }
+      15%  { box-shadow: 0 0 0 7px rgba(167,139,250,0.22); }
+      40%  { box-shadow: 0 0 0 0 rgba(167,139,250,0.0); }
+      55%  { box-shadow: 0 0 0 7px rgba(167,139,250,0.14); }
+      80%  { box-shadow: 0 0 0 0 rgba(167,139,250,0.0); }
+      100% { box-shadow: 0 0 0 0 rgba(167,139,250,0.0); }
+    }
+    .bubble.proactive-arrive{
+      animation: sherzProactivePulse 2.2s ease-out 1;
+      border-color: rgba(167,139,250,0.35);
+    }
+    .sherz-proactive-badge{
+      position:absolute; top:10px; right:12px;
+      font-size:10.5px; letter-spacing:.4px;
+      padding:3px 9px; border-radius:999px;
+      border:1px solid rgba(167,139,250,0.35);
+      background: rgba(167,139,250,0.10);
+      color: rgba(230,224,255,0.92);
+      display:flex; align-items:center; gap:4px;
+    }
+    .sherz-proactive-toast{
+      position:fixed; left:50%; bottom:100px; /* ⚠️ adjust to clear your real composer height — see note above */
+      transform:translateX(-50%) translateY(8px);
+      background: rgba(20,18,28,0.92);
+      border:1px solid rgba(167,139,250,0.35);
+      color: rgba(255,255,255,0.92);
+      padding:9px 16px; border-radius:999px;
+      font-size:13px; cursor:pointer;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      opacity:0; pointer-events:none;
+      transition: opacity .25s ease, transform .25s ease;
+      z-index: 50;
+      display:flex; align-items:center; gap:6px;
+    }
+    .sherz-proactive-toast.show{
+      opacity:1; transform:translateX(-50%) translateY(0);
+      pointer-events:auto;
+    }
+  `;
+  document.head.appendChild(styleTag);
+})();
+
+/**
+ * Short, soft two-tone chime via Web Audio — no audio asset file needed.
+ * Reuses the existing shared ttsAudioCtx (declared earlier in this file)
+ * instead of creating a second AudioContext.
+ */
+function playProactiveChime(){
+  try{
+    if (!ttsAudioCtx) ttsAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (ttsAudioCtx.state === 'suspended') ttsAudioCtx.resume();
+
+    const now = ttsAudioCtx.currentTime;
+    const notes = [
+      { freq: 880,  start: 0.00, dur: 0.30 },
+      { freq: 1320, start: 0.12, dur: 0.35 },
+    ];
+
+    notes.forEach(({ freq, start, dur }) => {
+      const osc = ttsAudioCtx.createOscillator();
+      const gain = ttsAudioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+
+      gain.gain.setValueAtTime(0, now + start);
+      gain.gain.linearRampToValueAtTime(0.08, now + start + 0.02); // soft, not loud
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + start + dur);
+
+      osc.connect(gain);
+      gain.connect(ttsAudioCtx.destination);
+      osc.start(now + start);
+      osc.stop(now + start + dur + 0.05);
+    });
+  } catch(e){
+    console.warn('[proactive] chime failed (non-fatal):', e.message);
+  }
+}
+
+/**
+ * Native browser Notification — only when the tab is actually hidden or
+ * unfocused. Requests permission lazily, the first time it's actually
+ * needed, rather than nagging on page load.
+ */
+function maybeShowBrowserNotification(text){
+  if (!('Notification' in window)) return;
+  const tabIsAway = document.hidden || !document.hasFocus();
+  if (!tabIsAway) return;
+
+  const fire = () => {
+    try{
+      new Notification('SHERZ', {
+        body: String(text).slice(0, 140),
+        icon: '/sherz-icon.svg',
+        tag: 'sherz-proactive', // collapses rapid duplicates into one notification
+      });
+    } catch(e){
+      console.warn('[proactive] Notification failed (non-fatal):', e.message);
+    }
+  };
+
+  if (Notification.permission === 'granted') {
+    fire();
+  } else if (Notification.permission === 'default') {
+    Notification.requestPermission().then((perm) => {
+      if (perm === 'granted') fire();
+    }).catch(() => {});
+  }
+  // permission === 'denied' -> silently skip, never re-prompt
+}
+
+/** True if the user has scrolled up away from the bottom of the feed. */
+function isFeedScrolledUp(){
+  const threshold = 48; // px of slack before we consider them "not at bottom"
+  return (feed.scrollTop + feed.clientHeight) < (feed.scrollHeight - threshold);
+}
+
+let proactiveToastEl = null;
+let proactiveToastTimer = null;
+
+/** Floating "come back down" toast — only shown if the user is scrolled up. */
+function showProactiveReturnToast(){
+  if (!isFeedScrolledUp()) return;
+
+  if (!proactiveToastEl) {
+    proactiveToastEl = document.createElement('div');
+    proactiveToastEl.className = 'sherz-proactive-toast';
+    proactiveToastEl.innerHTML = `SHERZ checked in on you <span style="font-size:15px">↓</span>`;
+    proactiveToastEl.addEventListener('click', () => {
+      feed.scrollTo({ top: feed.scrollHeight, behavior: 'smooth' });
+      hideProactiveReturnToast();
+    });
+    document.body.appendChild(proactiveToastEl);
+  }
+
+  clearTimeout(proactiveToastTimer);
+  requestAnimationFrame(() => proactiveToastEl.classList.add('show'));
+  proactiveToastTimer = setTimeout(hideProactiveReturnToast, 6000);
+}
+
+function hideProactiveReturnToast(){
+  if (!proactiveToastEl) return;
+  proactiveToastEl.classList.remove('show');
+}
+
     async function addAiProactive(text, meta = {}){
+      // ✅ NEW: capture scroll + focus state BEFORE the typewriter/scroll
+      // calls below change them — isFeedScrolledUp() and the notification
+      // check both need to reflect where the user actually was the moment
+      // this message arrived, not after addAiTypewriter's own scroll.
+      const wasScrolledUp = isFeedScrolledUp();
+
       await addAiTypewriter(String(text));
 
       const last = feed.children[feed.children.length - 1];
       if (!last || !last.classList || !last.classList.contains('bubble')) return;
 
+      // ✅ NEW: SHERZ badge (replaces the old plain "PROACTIVE • tone" badge)
       const badge = document.createElement('div');
-      badge.style.cssText = `
-        position:absolute; top:10px; right:12px;
-        font-size:10.5px; letter-spacing:.6px;
-        padding:3px 8px; border-radius:999px;
-        border:1px solid rgba(255,255,255,0.10);
-        background: rgba(255,255,255,0.03);
-        color: rgba(255,255,255,0.58);
-      `;
-      const tone = meta?.tone ? ` • ${meta.tone}` : '';
-      badge.textContent = `PROACTIVE${tone}`;
+      badge.className = 'sherz-proactive-badge';
+      badge.textContent = 'SHERZ • 💭';
 
       last.style.position = 'relative';
       last.appendChild(badge);
-      feed.scrollTop = feed.scrollHeight;
+
+      // ✅ NEW: one-shot arrival glow/pulse on the bubble itself
+      last.classList.add('proactive-arrive');
+      last.addEventListener('animationend', () => last.classList.remove('proactive-arrive'), { once: true });
+
+      // ✅ FIX: only auto-scroll if the user was already at/near the bottom.
+      // Force-scrolling unconditionally here would yank a scrolled-up user
+      // straight back down, making the toast below pointless — they'd
+      // never actually get to stay where they were.
+      if (!wasScrolledUp) feed.scrollTop = feed.scrollHeight;
       markActivity();
+
+      // ✅ NEW: chime always plays (soft, synthesized — see playProactiveChime)
+      playProactiveChime();
+
+      // ✅ NEW: native browser Notification, only if the tab was actually
+      // hidden/unfocused — maybeShowBrowserNotification() itself re-checks
+      // document.hidden/hasFocus(), this is just the call site.
+      maybeShowBrowserNotification(text);
+
+      // ✅ NEW: toast only if the user was scrolled away from the bottom
+      // when this message arrived (captured above, before the forced
+      // scrollTop assignment a few lines up changed that).
+      if (wasScrolledUp) showProactiveReturnToast();
     }
 
     function connectSSE(userId){

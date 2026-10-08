@@ -20,6 +20,11 @@ import { getUserProfile, upsertUserProfile, markAskedName } from '../memory/user
 import { getRelevantFacts, formatFactsForPrompt } from '../memory/memoryRag.js';
 import { loadProfileSummary, buildProfileSummaryBlock } from '../memory/profileSummary.js';
 
+// ✅ NEW: extracted memory/context/system-prompt assembly (was inline here,
+// lines 307-452 — moved to its own file so runExpertTurn.js can reuse the
+// exact same memory integration instead of a third copy of it).
+import { buildFullSystemContext } from './systemContext.js';
+
 // ✅ FAZA 6 LAB1: Continue + BrainState (NEW)
 import { detectContinue } from '../nlu/detectContinue.js';
 import { loadLastState, saveLastState } from '../memory/lastState.js';
@@ -38,6 +43,14 @@ let friendBrainState = {
   lastHelpProvided: false,
   updatedAt: Date.now(),
 };
+
+// ✅ NEW: read access for runExpertTurn.js, which needs this module's
+// current friendBrainState for buildFullSystemContext but shouldn't mutate
+// it directly (only runBrain()'s own updateFriendBrainState() call does
+// that, later in this file).
+export function getFriendBrainState() {
+  return friendBrainState;
+}
 
 // Oxirgi user xabarini olish
 function getLastUserText(messages = []) {
@@ -77,7 +90,7 @@ function stripEarlyComfort(content = '') {
 }
 
 // FAZA 3 uchun recentMessages ni normalize qilish
-function normalizeRecentMessages(messages = [], limit = 20) {
+export function normalizeRecentMessages(messages = [], limit = 20) {
   const clean = (messages || [])
     .filter((m) => m?.role === 'user' || m?.role === 'assistant')
     .map((m) => ({
@@ -91,7 +104,7 @@ function normalizeRecentMessages(messages = [], limit = 20) {
 /**
  * ✅ EmotionLog uchun: emotion object normalize
  */
-function normalizeEmotion(e) {
+export function normalizeEmotion(e) {
   if (!e) return { label: 'neutral', score: 0, reason: null };
 
   const label = String(e.label || e.emotion || e.name || 'neutral').toLowerCase();
@@ -110,7 +123,7 @@ function normalizeEmotion(e) {
 /**
  * ✅ Emotion history summary (7 kun)
  */
-async function getEmotionSummary(prisma, userId, days = 7) {
+export async function getEmotionSummary(prisma, userId, days = 7) {
   if (!prisma?.emotionLog?.findMany) return null;
 
   const since = new Date(Date.now() - days * 86400000);
@@ -152,7 +165,7 @@ async function getEmotionSummary(prisma, userId, days = 7) {
 /**
  * ✅ Emotion log write (DB)
  */
-async function writeEmotionLog(prisma, { userId, emotion }) {
+export async function writeEmotionLog(prisma, { userId, emotion }) {
   if (!prisma?.emotionLog?.create) return;
   // ✅ FIX: skip DB write for anonymous/unresolved users — avoids FK constraint crash
   if (!userId || userId === 'anonymous') return;
@@ -304,155 +317,33 @@ export async function runBrain({ userId, messages, prisma, image, maxToolHops = 
     }
   }
 
-  // ✅ FAZA 4: userProfile read + upsert
-  let userProfile = null;
-  try {
-    const patch = extractNameAndStyle(userText);
-    userProfile = await getUserProfile(prisma, userId);
-
-    if (patch && Object.keys(patch).length > 0) {
-      userProfile = await upsertUserProfile(prisma, userId, patch);
-    }
-  } catch (e) {
-    console.warn('⚠️ UserProfile read/upsert skipped/error:', e?.message || e);
-  }
-
-  // 3) Emotion: real detectEmotion’dan
-  const detected = detectEmotion(userText) || { label: 'neutral' };
-  const userEmotion = normalizeEmotion(detected);
-  console.log('🧠 userEmotion(normalized):', userEmotion);
-
-  // ✅ 3.1) EmotionLog’ni DB’ga yozib qo‘yamiz
-  try {
-    await writeEmotionLog(prisma, { userId, emotion: userEmotion });
-  } catch (e) {
-    console.warn('⚠️ EmotionLog write skipped/error:', e?.message || e);
-  }
-
-  // ✅ 3.2) 7 kunlik emotion history summary
-  let emotionSummary = null;
-  try {
-    emotionSummary = await getEmotionSummary(prisma, userId, 7);
-  } catch (e) {
-    console.warn('⚠️ EmotionSummary skipped/error:', e?.message || e);
-  }
-
-  // 4) Friend policy
-  const policy = decideResponsePolicy({ text: userText, emotion: userEmotion });
-
-  // ✅ FAZA 3: Deep Context Analyzer
-  const recentMessages = normalizeRecentMessages(messages, 20);
-  const emotionHistory = emotionSummary ? [emotionSummary] : [];
-
-  const ctx = userContextAnalyzer({
+  // ✅ NEW: userProfile/emotion/policy/context/system-prompt assembly moved
+  // to systemContext.js (buildFullSystemContext) — same logic, same
+  // behavior, just now shared with runExpertTurn.js. userProfile stays a
+  // mutable `let` here (not destructured as const) since it's reassigned
+  // again later in this function.
+  const fullContext = await buildFullSystemContext({
     userId,
-    userMessage: userText,
-    recentMessages,
-    emotionNow: userEmotion,
-    emotionHistory,
-    memory: {},
-    timezone: process.env.SHERZ_TZ || 'Asia/Tashkent',
+    prisma,
+    messages,
+    userText,
+    isTrivialGreeting,
+    deps: {
+      extractNameAndStyle,
+      detectEmotion,
+      normalizeEmotion,
+      writeEmotionLog,
+      getEmotionSummary,
+      decideResponsePolicy,
+      normalizeRecentMessages,
+      userContextAnalyzer,
+      buildSystemPrompt,
+      buildResponseInstruction,
+      friendBrainState,
+    },
   });
-
-  console.log('🧠 FAZA 3 ctx:', ctx?.mode, ctx?.confidence, ctx?.internalSummary);
-
-  // 5) System prompt (+ overlays)
-  const baseSystemPrompt = buildSystemPrompt();
-
-  const policyOverlay = [
-    '',
-    'FAZA 2: FRIEND MODE POLICY (JUDA MUHIM):',
-    `- Strategy: ${policy?.strategy || 'support'}`,
-    `- Tone: ${policy?.tone || 'calm'}`,
-    `- MaxSentences: ${policy?.maxSentences ?? 4}`,
-    `- AskQuestions: ${policy?.askQuestions ? 'yes' : 'no'}`,
-    '- QOIDALAR:',
-    '  • Javobni shu strategiyaga mos yoz.',
-    '  • Keraksiz joyda tool tilga olma, oddiy do‘stona javob ber.',
-    '  • Juda uzun monolog qilma.',
-    '',
-    'FAZA 3: DEEP CONTEXT (KONTEKST) — COMFORT GATE:',
-    `- Mode: ${ctx?.mode || 'LISTEN'}`,
-    `- Confidence: ${typeof ctx?.confidence === 'number' ? ctx.confidence.toFixed(2) : 'n/a'}`,
-    `- Summary: ${ctx?.internalSummary || 'n/a'}`,
-    '- QOIDALAR:',
-    '  • MODE=INQUIRE bo‘lsa: taskin bermaysan, faqat 1–2 ta aniqlashtiruvchi savol berasan.',
-    '  • MODE=HELP bo‘lsa: step-by-step yechim berasan, taskin minimal.',
-    '  • MODE=COMFORT faqat ruxsat bo‘lsa: real, halol, qisqa taskin.',
-    '  • MODE=LISTEN bo‘lsa: gapirtiradigan qisqa javob.',
-    '',
-    emotionSummary
-      ? `EMOTION_HISTORY(7d): dominant=${emotionSummary.dominantEmotion}, trend=${emotionSummary.trend}, avg=${emotionSummary.avgScore.toFixed(
-          2
-        )}, count=${emotionSummary.count}`
-      : 'EMOTION_HISTORY(7d): none',
-  ].join('\n');
-
-  const responseInstruction = buildResponseInstruction({
-    policy,
-    text: userText,
-    friendBrainState,
-    emotion: userEmotion,
-    ctx,
-    emotionSummary,
-    userProfile,
-  });
-
-  // ✅ FAZA 5: Memory RAG + Profile Summary blok
-  let faza5MemoryBlock = '';
-  try {
-    if (prisma && userId && !isTrivialGreeting) {
-      const relevantFacts = await getRelevantFacts({
-        userId,
-        query: userText,
-        prisma,
-        topK: 6,
-      });
-
-      const ragFactsText = formatFactsForPrompt(relevantFacts);
-
-      let aiProfileSummary = '';
-      try {
-        aiProfileSummary = await loadProfileSummary(prisma, userId);
-      } catch (e) {
-        aiProfileSummary = '';
-      }
-
-      const profileBlock = buildProfileSummaryBlock({
-        userProfile,
-        facts: relevantFacts,
-        emotionHint: userEmotion?.label || null,
-        aiProfileSummary,
-      });
-
-      faza5MemoryBlock = [
-        '',
-        'FAZA 5: MEMORY CONTEXT (FACTS + PROFILE) — IMPORTANT RULES:',
-        '- Memory faqat kerak bo‘lsa ishlatiladi, uydirma qilinmaydi.',
-        '- Agar memory userning hozirgi gapiga zid bo‘lsa, hozirgi gap ustun.',
-        '',
-        profileBlock || '',
-        '',
-        ragFactsText || '',
-      ]
-        .filter(Boolean)
-        .join('\n')
-        .slice(0, 6000);
-    }
-  } catch (e) {
-    console.warn('⚠️ FAZA5 memory injection skipped/error:', e?.message || e);
-    faza5MemoryBlock = '';
-  }
-
-  const systemPrompt =
-    baseSystemPrompt +
-    policyOverlay +
-    '\n\n' +
-    responseInstruction +
-    (faza5MemoryBlock ? '\n\n' + faza5MemoryBlock : '');
-
-  console.log('🧩 policy:', policy);
-  console.log('🧾 systemPrompt tail:', systemPrompt.slice(-500));
+  const { systemPrompt, userEmotion, policy, ctx, emotionSummary, memoryInjected } = fullContext;
+  let userProfile = fullContext.userProfile;
 
   // 6) Modelga boradigan messages
   const finalMessages = [
@@ -461,7 +352,15 @@ export async function runBrain({ userId, messages, prisma, image, maxToolHops = 
       .filter((m) => m?.role === 'user' || m?.role === 'assistant')
       .map((m) => ({
         role: m.role,
-        content: String(m.content ?? ''),
+        // ✅ FIX: was `String(m.content ?? '')` unconditionally — when an
+        // image is attached, m.content is already the OpenAI Vision-format
+        // array ([{type:'text',...}, {type:'image_url',...}], set a few
+        // lines up at lastMsg.content=[...]). String() on an array of
+        // objects produces "[object Object],[object Object]" — silently
+        // destroying both the image AND the original text before this ever
+        // reaches OpenAI. Only stringify plain string content; pass the
+        // Vision array through unchanged.
+        content: Array.isArray(m.content) ? m.content : String(m.content ?? ''),
       })),
   ];
 
@@ -654,7 +553,7 @@ export async function runBrain({ userId, messages, prisma, image, maxToolHops = 
         emotionSummary,
         userProfile,
         faza5: {
-          injected: !!faza5MemoryBlock,
+          injected: memoryInjected,
         },
       },
       raw: response,
