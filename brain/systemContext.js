@@ -17,6 +17,8 @@
 import { getUserProfile, upsertUserProfile } from '../memory/userProfileRepo.js';
 import { getRelevantFacts, formatFactsForPrompt } from '../memory/memoryRag.js';
 import { loadProfileSummary, buildProfileSummaryBlock } from '../memory/profileSummary.js';
+import { buildCorePersonaBlock } from './corePersona.js'; // ✅ Core persona directive (pushback + protective tact)
+import { composeSystemPrompt } from './workMode.js'; // ✅ Project → Work/Engineering mode
 
 /**
  * Builds the full memory-aware system prompt: user profile, emotion
@@ -54,6 +56,7 @@ export async function buildFullSystemContext({
   messages,
   userText,
   isTrivialGreeting = false,
+  workMode = null,   // { projectName, description } when the user is inside a Project → Work/Engineering mode
   deps,
 }) {
   const {
@@ -210,12 +213,16 @@ export async function buildFullSystemContext({
     faza5MemoryBlock = '';
   }
 
-  const systemPrompt =
-    baseSystemPrompt +
-    policyOverlay +
-    '\n\n' +
-    responseInstruction +
-    (faza5MemoryBlock ? '\n\n' + faza5MemoryBlock : '');
+  // Work mode swaps the friend-mode overlay + per-turn response instruction (short, comforting answers) for
+  // the engineering block; persona, safety and long-term memory are unchanged.
+  const systemPrompt = composeSystemPrompt({
+    base: baseSystemPrompt,
+    persona: buildCorePersonaBlock(),
+    policyOverlay,
+    responseInstruction,
+    memory: faza5MemoryBlock,
+    workMode,
+  });
 
   console.log('🧩 policy:', policy);
   console.log('🧾 systemPrompt tail:', systemPrompt.slice(-500));

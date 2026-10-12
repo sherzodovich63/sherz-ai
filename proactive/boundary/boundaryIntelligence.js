@@ -62,6 +62,29 @@ export async function decideBoundaryForUser(userId, prisma) {
     return out;
   }
 
+  // ✅ Loop fix (a): user explicitly declined the "go quiet?" offer -> never
+  // re-ask because of old unanswered pings; carry on normally.
+  if (lastPerm?.permissionResult === 'deny') {
+    out.cause = { cause: 'busy', confidence: 0.5, evidence: { lastPerm: 'deny' } };
+    out.boundaryDecision = 'normal';
+    out.permissionNeeded = false;
+    return out;
+  }
+
+  // ✅ Loop fix (b): a permission ask is already out (delivered, no answer
+  // recorded) inside this 48h window -> do NOT ask again; stay quiet (respect).
+  // Without this, the ask itself counted as one more unanswered delivered
+  // event, noReplyCount stayed >= 3 forever, and the branch below re-asked on
+  // every tick. Result: at most one permission ask per 48h window.
+  const lastAsk = events.find(e => e.delivered && (e.permissionAsked || e.kind === 'permission'));
+  if (lastAsk && !lastAsk.permissionResult) {
+    out.cause = { cause: 'overwhelmed', confidence: 0.6, evidence: { awaitingPermissionAnswer: true } };
+    out.boundaryDecision = 'respect';
+    out.permissionNeeded = false;
+    out.respectUntil = new Date(Date.now() + 24 * 3600 * 1000);
+    return out;
+  }
+
   if (noReplyCount >= 3) {
     out.cause = { cause: 'overwhelmed', confidence: 0.72, evidence: { noReplyCount } };
     out.boundaryDecision = 'respect';

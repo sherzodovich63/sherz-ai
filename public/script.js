@@ -5,7 +5,11 @@ window.$ = window.$ || ((sel) => document.querySelector(sel));
 console.log("✅ script.js loaded OK", new Date().toISOString());
 window.__SHERZ_SCRIPT_OK__ = true;
 
-function getToken() { return localStorage.getItem('token'); }
+function getToken() {
+  // ✅ index.html owns identity (account token in localStorage 'sherz_token', guest token in memory).
+  if (window.__sherzAuth) return window.__sherzAuth.getToken() || null;
+  return localStorage.getItem('token'); // legacy fallback when index.html's auth layer is absent
+}
 function authHeaders(extra = {}) {
   const token = getToken();
   return {
@@ -121,6 +125,32 @@ const imagePreviewContainer = document.getElementById('image-preview-container')
 const imagePreview = document.getElementById('image-preview');
 const removeImageBtn = document.getElementById('remove-image-btn');
 
+// ── Attachment (one picture per message) ───────────────────────────────────
+// The picture lives in #fileInput.files[0]; the preview strip above the composer is just a view of it.
+// index.html reads it through window.__sherzAttachment when you press Send and sends it together with the text.
+const ATTACH_MAX_BYTES = 25 * 1024 * 1024;        // raw pick limit; big photos are shrunk before upload
+let attachPreviewUrl = null;
+
+function attachmentNotice(msg) {
+    // light, non-blocking message (the page has its own toast later; fall back to console)
+    try { if (typeof window.__sherzToast === 'function') return window.__sherzToast(msg); } catch (e) {}
+    console.warn('[attachment]', msg);
+}
+
+function getAttachment() {
+    const f = fileInput && fileInput.files && fileInput.files[0];
+    return f || null;
+}
+
+function clearAttachment() {
+    if (fileInput) fileInput.value = '';
+    if (imagePreview) imagePreview.removeAttribute('src');
+    if (imagePreviewContainer) imagePreviewContainer.style.display = 'none';
+    if (attachBtn) attachBtn.style.color = '';           // paperclip back to normal
+    if (attachPreviewUrl) { try { URL.revokeObjectURL(attachPreviewUrl); } catch (e) {} attachPreviewUrl = null; }
+}
+window.__sherzAttachment = { get: getAttachment, clear: clearAttachment };
+
 if (attachBtn) {
     attachBtn.addEventListener('click', () => {
         fileInput.click();
@@ -130,34 +160,24 @@ if (attachBtn) {
 if (fileInput) {
     fileInput.addEventListener('change', () => {
         const file = fileInput.files[0];
-        if (file) {
-            console.log("Rasm tanlandi:", file.name);
-            
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                // 1. Rasmni prevyu elementiga joylash
-                if (imagePreview) imagePreview.src = e.target.result;
-                
-                // 2. Prevyu panelini ko'rsatish
-                if (imagePreviewContainer) {
-                    imagePreviewContainer.style.display = 'block';
-                }
-                
-                // 3. Klip belgisini yashil qilish
-                if (attachBtn) attachBtn.style.color = "#4CAF50";
-            };
-            reader.readAsDataURL(file);
-        }
+        if (!file) return;
+        if (!/^image\//i.test(file.type || '')) { clearAttachment(); return attachmentNotice('Please choose an image file.'); }
+        if (file.size > ATTACH_MAX_BYTES) { clearAttachment(); return attachmentNotice('That image is too large (max 25 MB).'); }
+        if (attachPreviewUrl) { try { URL.revokeObjectURL(attachPreviewUrl); } catch (e) {} attachPreviewUrl = null; }
+        // ✅ FIX: render the thumbnail from a data: URL (FileReader). blob: URLs are blocked by the page's
+        // img-src CSP, which left only the alt text ("Prevyu") in the preview card.
+        const rd = new FileReader();
+        rd.onload = () => { if (fileInput.files[0] === file && imagePreview) imagePreview.src = String(rd.result); };
+        rd.onerror = () => { attachPreviewUrl = URL.createObjectURL(file); if (imagePreview) imagePreview.src = attachPreviewUrl; };
+        rd.readAsDataURL(file);
+        if (imagePreviewContainer) imagePreviewContainer.style.display = 'block';
+        if (attachBtn) attachBtn.style.color = '#4CAF50';   // paperclip turns green while a picture is attached
     });
 }
 
-// 4. "X" tugmasini bossa rasmni o'chirish logikasi
+// "X" removes the picture
 if (removeImageBtn) {
-    removeImageBtn.addEventListener('click', () => {
-        fileInput.value = ""; // Faylni tozalash
-        if (imagePreviewContainer) imagePreviewContainer.style.display = 'none';
-        if (attachBtn) attachBtn.style.color = ""; // Rangni qaytarish
-    });
+    removeImageBtn.addEventListener('click', clearAttachment);
 }
 
 // logging (oldingi <pre id="log"> ichiga yozadi)
@@ -468,6 +488,7 @@ function restoreChatFromStorage() {
 let __sse = null;
 
 function getCurrentUserId() {
+  if (window.__sherzAuth) return window.__sherzAuth.getUserId() || 'u1';
   // ✅ FIX: read userId from the stored JWT user object, not a dead HTML input
   try {
     const raw = localStorage.getItem('sherz_user') || localStorage.getItem('user');
@@ -741,7 +762,8 @@ function handleLocalCommand(text) {
 // =====================================================
 // Clear button
 // =====================================================
-if (clearBtn) {
+// index.html owns #clear ("Delete this project"); this legacy handler would blank the live feed (#log)
+if (clearBtn && !window.__sherzAuth) {
   clearBtn.addEventListener("click", () => {
     if (logEl) logEl.textContent = "";
     if (textEl) textEl.value = "";
@@ -763,6 +785,9 @@ if (clearBtn) {
 // ✅ Send flow (POST /api/chat)
 // =====================================================
 async function postChatFlow() {
+    // index.html owns sending (text + picture as one multipart request). Without this guard the old
+    // handlers below ran as well, saw the still-attached picture and fired a second, broken request.
+    if (window.__sherzAuth) return;
     // ✅ FIX: look up the element live every call instead of relying on the
     // top-level `textEl` const (captured once at script-load time, line 172).
     // If the DOM wasn't fully ready when that const ran, or the element gets
@@ -775,14 +800,9 @@ async function postChatFlow() {
     const text = (textEl.value || "").trim();
 
     // 1. Tanlangan rasmni olish
-    const file = (typeof fileInput !== 'undefined' && fileInput.files) ? fileInput.files[0] : null;
-    let imageData = null;
+    const file = getAttachment();
 
-    if (file) {
-        imageData = await toBase64(file);
-    }
-
-    if (!text && !imageData) return;
+    if (!text && !file) return;
 
     try {
         sendBtn?.setAttribute("disabled", "");
@@ -795,21 +815,22 @@ async function postChatFlow() {
         log("-> /api/chat ...");
 
         // 2. Serverga yuborish
-        const r = await fetch("/api/chat", {
-            method: "POST",
-            headers: authHeaders(),
-            body: JSON.stringify({
-                userId,
-                message: text,
-                image: imageData,
-                locale: "uz",
-                temperature: 0.6,
-            }),
-        });
-
-        // Tanlangan fayllarni tozalash
-        if (typeof fileInput !== 'undefined') fileInput.value = "";
-        if (typeof attachBtn !== 'undefined') attachBtn.style.color = "";
+        // text + picture travel together as ONE multipart/form-data request (no manual Content-Type: the
+        // browser adds the boundary). Without a picture it stays the usual JSON body.
+        let body, headers;
+        if (file) {
+            body = new FormData();
+            body.append("image", file, file.name || "image");
+            body.append("message", text);
+            body.append("userId", userId);
+            body.append("locale", "uz");
+            headers = authHeaders(); delete headers["Content-Type"];
+        } else {
+            body = JSON.stringify({ userId, message: text, locale: "uz", temperature: 0.6 });
+            headers = authHeaders();
+        }
+        const r = await fetch("/api/chat", { method: "POST", headers, body });
+        if (r.ok) clearAttachment();                 // cleared only after the server accepted it
 
         const j = await r.json().catch(() => ({ ok: false, error: "chat json parse error" }));
         log("<- " + JSON.stringify(j, null, 2));
@@ -837,10 +858,10 @@ async function postChatFlow() {
         sendBtn?.removeAttribute("disabled");
     }
 }
-if (sendBtn) sendBtn.addEventListener("click", postChatFlow);
+if (sendBtn && !window.__sherzAuth) sendBtn.addEventListener("click", postChatFlow);
 
 // ✅ Enter bosganda yuborish (Shift+Enter = newline)
-if (textEl) {
+if (textEl && !window.__sherzAuth) {
   textEl.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -1064,11 +1085,13 @@ function unlockAudio() {
 // Page load: storage’dan tiklash + SSE start
 // =====================================================
 document.addEventListener("DOMContentLoaded", () => {
-  // ✅ storage restore
-  restoreChatFromStorage();
-
-  // ✅ SSE start (proactive realtime)
-  startSSE();
+  // index.html's inline script now restores the thread from the server and owns the SSE
+  // connection. Running these here too rendered into a non-existent #chat and opened a
+  // duplicate EventSource. They only run if index.html's identity layer is absent.
+  if (!window.__sherzAuth) {
+    restoreChatFromStorage();
+    startSSE();
+  }
 
   // userId o‘zgarsa: storage + SSE qayta
   if (userIdEl) {
@@ -1088,6 +1111,7 @@ window.addEventListener("beforeunload", () => {
 // FORCE SEND → postChatFlow
 // ===============================
 (function () {
+  if (window.__sherzAuth) return; // index.html owns send + identity; this legacy block would replace #send and mint a dev-token
   const oldBtn = document.querySelector("#send");
   if (!oldBtn) return;
 
@@ -1238,6 +1262,7 @@ function handleLogout() {
 
 // Wire up buttons once DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
+  if (window.__sherzAuth) return; // index.html already wires the account pill, Google button and logout
   // Render initial auth state
   renderAuthUI();
 

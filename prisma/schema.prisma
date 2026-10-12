@@ -1,6 +1,6 @@
 datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 generator client {
@@ -37,8 +37,10 @@ model User {
   email           String?        @unique
   passwordHash    String?
   googleId        String?        @unique
+  avatarUrl       String?
 
   messages        Message[]
+  conversations   Conversation[]
   facts           Fact[]
 
   // ✅ FAZA 4 relations (qo'shildi)
@@ -60,8 +62,29 @@ model Message {
   text      String
   createdAt DateTime @default(now())
 
+  // null = written before conversations existed (adopted lazily by lib/conversations.js)
+  conversationId String?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
   @@index([userId])
   @@index([userId, createdAt])
+  @@index([conversationId, createdAt])
+}
+
+model Conversation {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String   @default("New chat")
+  // "companion" = the user's ONE personal thread; "project" = a focused workspace (Work mode)
+  kind        String   @default("companion")
+  description String?  // project goal / stack, fed to the model in Work mode
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  messages  Message[]
+
+  @@index([userId, updatedAt])
+  @@index([userId, kind])
 }
 
 model Fact {

@@ -16,7 +16,7 @@ import cron from 'node-cron';
 import registerMvpEndpoints from './mvp_endpoints.js';
 import { apiLimiter } from './middleware/limits.js';
 import { notFound, errorHandler } from './middleware/error.js';
-import { authRequired } from './middleware/auth.js';
+import { authRequired, optionalAuth } from './middleware/auth.js';
 
 import { runNluForMemory } from './nlu/runNluForMemory.js';          
 import { maybeCompactOldMessages } from './memory/conversationCompactor.js'; // ✅ NEW
@@ -24,15 +24,24 @@ import { runSkillMilestone } from './memory/milestones.js'; // ✅ NEW
 import { saveMemoryFactsForUser } from './nlu/saveMemoryFacts.js';   
 import { addTodo, listTodos } from './brain/todoService.js';
 import { runSkill } from './brain/skillsRouter.js';
-import { runBrain } from './brain/brain.js'; // ✅ FIX: Wire the GPT brain
+import { runBrain, resetFriendBrainState } from './brain/brain.js'; // ✅ FIX: Wire the GPT brain
+import * as killSwitch from './lib/killSwitch.js'; // ✅ Sprint 3 admin layer
+import adminRouter from './routes/admin.js'; // ✅ Sprint 3 admin layer
+import { warnIfAdminMisconfigured, adminRequired } from './middleware/adminAuth.js'; // ✅ Sprint 3 admin layer
 import { runExpertTurn } from './brain/expertTurn.js'; // ✅ NEW: Expert Mode tool-calling loop
 import { openai } from './llm/openaiClient.js'; // ✅ FIX: was referenced (search.qa synthesis) but never imported — latent ReferenceError
 import { startProactiveRunner } from './proactive/proactiveRunner.js';
+import { recordReplyToLastProactive } from './proactive/proactiveFeedback.js'; // ✅ Reply tracking: was never called anywhere
 import { streamRoute } from './routes/stream.js';
 import { authRouter }  from './routes/auth.js';
 import { ttsRouter } from './routes/tts.js';
 import { cleanupRateLimitBuckets } from './services/rateLimiter.js';
 import { memoryRoute } from './routes/memory.js';
+import { purgeStaleGuests } from './lib/guestMerge.js';
+import { fetchPage, fetchContextForLLM } from './lib/chatHistory.js';
+import { deleteMessages, parseIds } from './lib/messages.js'; // ✅ delete chat messages
+import { listConversations, createProject, updateConversation, deleteConversation, resolveConversation, ensureCompanion, workModeFor, saveTurn } from './lib/conversations.js'; // ✅ Companion thread + Projects
+import { WORK_CONTEXT } from './brain/workMode.js'; // ✅ Project → Work/Engineering mode // ✅ endless-thread: cursor pagination + latest-N LLM context
 // ───────── Common setup ─────────
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -71,7 +80,7 @@ function makeHelmet() {
     useDefaults: true,
     directives: {
       "default-src": ["'self'"],
-      "img-src": ["'self'", "data:", "https:"],
+      "img-src": ["'self'", "data:", "blob:", "https:"], // ✅ FIX: blob: for attachment preview
       "style-src": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       "connect-src": ["'self'", "https:", "http:"], // Google/Wiki/SerpAPI/fetch uchun
       "media-src": ["'self'", "data:", "blob:"],  // ✅ FIX: blob: needed for TTS Blob URL audio playback
@@ -192,7 +201,9 @@ app.use('/api', (req, res, next) => {
   // ── DEV-only: skip auth if NODE_ENV !== 'production' ─────────────
   // This lets the browser use the app before the login UI is built.
   // Remove (or tighten) this block before going live.
-  if (!isProd) return next();
+  // ✅ FIX: still decode the token when one is sent, so req.user is set in dev too
+  // (it used to be skipped entirely → `req.user.id` threw TypeError).
+  if (!isProd) return optionalAuth(req, res, next);
 
   return authRequired(req, res, next);
 });
@@ -514,7 +525,8 @@ app.post('/api/facts', async (req, res) => {
 
 app.get('/api/facts/:userId', async (req, res) => {
   // ✅ SECURITY: users can only read their own facts
-  if (req.params.userId !== req.user.id) {
+  const factsMe = req.user?.id || (!isProd ? req.params.userId : null);   // ✅ FIX: dev w/o token no longer crashes
+  if (!factsMe || req.params.userId !== factsMe) {
     return res.status(403).json({ ok: false, error: 'Forbidden' });
   }
   try {
@@ -1593,11 +1605,10 @@ async function ensureGuestUser(userId) {
 // called in that case, so that turn was never being saved at all. This
 // covers that gap with the same ensureGuestUser-first, non-fatal-on-failure
 // pattern runBrainFlow already uses, so both paths behave consistently.
-async function persistSkillTurn(userId, userText, aiText) {
+async function persistSkillTurn(userId, userText, aiText, conversationId) {
   try {
     await ensureGuestUser(userId);
-    await prisma.message.create({ data: { userId, role: 'user',      text: userText } });
-    await prisma.message.create({ data: { userId, role: 'assistant', text: aiText  } });
+    await saveTurn(prisma, { userId, conversationId, userText, aiText });
   } catch (saveErr) {
     console.warn('[persistSkillTurn] message save failed (non-fatal):', saveErr.message);
   }
@@ -1750,28 +1761,32 @@ function withFallbackTimeout(promise, ms, fallbackValue) {
 // same runBrain call, same persistence, same memory extraction, same error
 // fallback strings. Accepts an optional onToken callback; when provided,
 // runBrain streams real OpenAI tokens through it as they arrive.
-async function runBrainFlow(userId, clean, image, { onToken, expertMode = false } = {}) {
+async function runBrainFlow(userId, clean, image, { onToken, expertMode = false, conversationId, conversation } = {}) {
+  image = normalizeImage(image);   // null unless it is a genuine jpeg/png/webp/gif data URL within the size limit
   console.log(`[brain.llm] No specialist matched for userId=${userId}, routing to GPT brain`);
   try {
     // 🟢 Guest foydalanuvchini bazada tayyorlash (FK xatosini oldini olish uchun)
     await ensureGuestUser(userId);
 
-    // Load last 20 messages from DB for context window
+    // Load the NEWEST 20 turns (size-capped) for the context window.
+    // (Was orderBy asc + take 20, which returned the OLDEST 20 messages ever.)
+    // Which conversation is this? A Project turns on Work/Engineering mode (own, longer working memory);
+    // the companion thread keeps the normal friend-mode brain.
+    let conv = conversation || null;
+    if (!conv) { try { conv = await resolveConversation(prisma, userId, conversationId); } catch (e) { /* non-fatal */ } }
+    if (conv) conversationId = conv.id;
+    const workMode = workModeFor(conv);
+
     let history = [];
     try {
-      const dbMessages = await prisma.message.findMany({
-        where:   { userId },
-        orderBy: { createdAt: 'asc' },
-        take:    20,
-      });
-      history = dbMessages.map(m => ({ role: m.role, content: String(m.text || '') })).filter(m => m.content);
+      history = await fetchContextForLLM(prisma, userId, { conversationId: conv ? conv.id : undefined, ...(workMode ? WORK_CONTEXT : {}) });
     } catch (histErr) {
       console.warn('[brain.llm] history load failed (non-fatal):', histErr.message);
     }
 
     const messages = [
       ...history,
-      { role: 'user', content: clean },
+      { role: 'user', content: clean || (image ? IMAGE_ONLY_PROMPT : clean) },
     ];
 
     // ✅ NEW: Expert Mode branches to runExpertTurn() here — everything
@@ -1779,8 +1794,8 @@ async function runBrainFlow(userId, clean, image, { onToken, expertMode = false 
     // compaction) stays identical for both paths; only which function
     // actually talks to the model differs.
     const brainResult = expertMode
-      ? await runExpertTurn({ userId, messages, prisma, image: image ?? null, onToken })
-      : await runBrain({ userId, messages, prisma, image: image ?? null, onToken });
+      ? await runExpertTurn({ userId, messages, prisma, image: image ?? null, onToken, workMode })
+      : await runBrain({ userId, messages, prisma, image: image ?? null, onToken, workMode });
 
     const said = brainResult?.content || brainResult?.said || null;
     if (!said) {
@@ -1791,8 +1806,7 @@ async function runBrainFlow(userId, clean, image, { onToken, expertMode = false 
     try {
       // ✅ FIX: Message.text is the real column (confirmed via schema.prisma) —
       // 'content' never existed on this model, hence "missing text: String" every time
-      await prisma.message.create({ data: { userId, role: 'user',      text: clean } });
-      await prisma.message.create({ data: { userId, role: 'assistant', text: said  } });
+      await saveTurn(prisma, { userId, conversationId, userText: image ? chatImageNote(clean) : clean, aiText: said });
     } catch (saveErr) {
       console.warn('[brain.llm] message save failed (non-fatal):', saveErr.message);
     }
@@ -1816,7 +1830,7 @@ async function runBrainFlow(userId, clean, image, { onToken, expertMode = false 
       console.warn('[brain.llm] activitySignal save failed (non-fatal):', signalErr.message);
     }
 
-    processUserMemory(userId, clean).catch(() => {});
+    if (clean) processUserMemory(userId, clean).catch(() => {});
 
     // ✅ NEW: periodic conversation-chunk summarization (Option #2 — long-term
     // memory). Internally bails cheaply if there isn't enough uncompacted
@@ -1840,6 +1854,15 @@ async function runBrainFlow(userId, clean, image, { onToken, expertMode = false 
   }
 }
 
+// ✅ Reply tracking: a user message answers the last proactive ping, and a clear
+// "Ha"/"Yo'q" answers the "go quiet?" ask. Fire-and-forget — it must never delay
+// or break a chat turn.
+function noteUserReplyForProactive(userId, text) {
+  if (!userId || userId === 'anonymous') return;
+  recordReplyToLastProactive({ prisma, userId, text }).catch((e) =>
+    console.warn('⚠️ recordReplyToLastProactive skipped:', e?.message || e));
+}
+
 // Legacy & new: birlashtirilgan /handle-intent
 app.post('/handle-intent', async (req, res) => {
   const { text = '' } = req.body || {};
@@ -1849,6 +1872,7 @@ app.post('/handle-intent', async (req, res) => {
 
   if (!clean) return res.json({ ok: true, said: runSkillGreeting().said });
 
+  noteUserReplyForProactive(userId, clean);
   const skillResult = await runSkillCandidates(clean, lower, userId);
   if (skillResult) {
     return res.json({ ok: true, said: skillResult.said });
@@ -1896,43 +1920,130 @@ app.post('/api/auth/guest', async (req, res) => {
   }
 });
 
-// ── GET /api/chat/history: returns this user's saved messages ──
-// Follows the same auth convention as /api/chat below (req.user?.id when
-// authenticated, falling back to a query/body param for guests — dev mode
-// skips auth entirely per the /api middleware above, same as every other
-// route in this file). Ascending chronological order (oldest first), which
-// is what the frontend's local history array/pagination already expects.
-// Capped at 200 to avoid an unbounded query for a very long-running
-// conversation — the frontend does its own local pagination/lazy-load on
-// top of whatever this returns, so this cap isn't the only thing limiting
-// how much history is reachable, just how much comes down in one request.
+// ── GET /api/chat/history: one endless thread, cursor-paginated ──
+// Query: ?limit=25 (max 100) &before=<nextCursor from the previous page>
+// Returns the NEWEST page first; `messages` are oldest->newest within the page,
+// plus { hasMore, nextCursor } for loading older pages as the user scrolls up.
+// Identity comes from the verified token; the ?userId= fallback exists only
+// outside production (it let anyone read anyone's history).
 app.get('/api/chat/history', async (req, res) => {
   try {
-    const userId = req.user?.id || req.query?.userId || 'u1';
+    const userId = req.user?.id || (!isProd ? (req.query?.userId || 'u1') : null);
     if (!userId) {
-      return res.status(400).json({ ok: false, error: 'userId required' });
+      return res.status(401).json({ ok: false, error: 'login required' });
     }
 
-    const dbMessages = await prisma.message.findMany({
-      where:   { userId },
-      orderBy: { createdAt: 'asc' },
-      take:    200,
+    await ensureCompanion(prisma, userId);
+    const page = await fetchPage(prisma, userId, {
+      before: req.query?.before,
+      limit:  req.query?.limit,
+      conversationId: req.query?.conversationId || undefined,   // omit = whole history (legacy)
     });
 
-    const messages = dbMessages.map(m => ({
-      role: m.role === 'assistant' ? 'ai' : 'user',
-      text: m.text,
-      ts:   m.createdAt.getTime(),
-    }));
-
-    return res.json({ ok: true, messages });
+    return res.json({ ok: true, ...page });
   } catch (e) {
+    if (e instanceof RangeError) {
+      return res.status(400).json({ ok: false, error: 'bad cursor' });
+    }
     console.error('/api/chat/history error:', e);
     return res.status(500).json({ ok: false, error: 'history fetch failed' });
   }
 });
 
-app.post('/api/chat', async (req, res) => {
+// ── Conversations (sidebar): list / search / create / rename / delete ──
+// Identity: verified token; outside production the ?userId= / body userId fallback matches the other routes.
+const convUser = (req) => req.user?.id || (!isProd ? (req.query?.userId || req.body?.userId || 'u1') : null);
+
+app.get('/api/conversations', async (req, res) => {
+  try {
+    const userId = convUser(req);
+    if (!userId) return res.status(401).json({ ok: false, error: 'login required' });
+    await ensureGuestUser(userId);
+    const conversations = await listConversations(prisma, userId, { q: req.query?.q });
+    return res.json({ ok: true, conversations });
+  } catch (e) {
+    console.error('/api/conversations list error:', e);
+    return res.status(500).json({ ok: false, error: 'list failed' });
+  }
+});
+
+app.post('/api/conversations', async (req, res) => {
+  try {
+    const userId = convUser(req);
+    if (!userId) return res.status(401).json({ ok: false, error: 'login required' });
+    await ensureGuestUser(userId);
+    const conversation = await createProject(prisma, userId, { title: req.body?.title, description: req.body?.description });
+    return res.status(201).json({ ok: true, conversation });
+  } catch (e) {
+    if (e instanceof RangeError) return res.status(400).json({ ok: false, error: e.message });
+    console.error('/api/conversations create error:', e);
+    return res.status(500).json({ ok: false, error: 'create failed' });
+  }
+});
+
+app.patch('/api/conversations/:id', async (req, res) => {
+  try {
+    const userId = convUser(req);
+    if (!userId) return res.status(401).json({ ok: false, error: 'login required' });
+    const conversation = await updateConversation(prisma, userId, req.params.id, { title: req.body?.title, description: req.body?.description });
+    if (!conversation) return res.status(404).json({ ok: false, error: 'not found' });
+    return res.json({ ok: true, conversation });
+  } catch (e) {
+    if (e instanceof RangeError) return res.status(400).json({ ok: false, error: e.message });
+    console.error('/api/conversations rename error:', e);
+    return res.status(500).json({ ok: false, error: 'rename failed' });
+  }
+});
+
+app.delete('/api/conversations/:id', async (req, res) => {
+  try {
+    const userId = convUser(req);
+    if (!userId) return res.status(401).json({ ok: false, error: 'login required' });
+    const removed = await deleteConversation(prisma, userId, req.params.id);
+    if (!removed) return res.status(404).json({ ok: false, error: 'not found' });
+    return res.json({ ok: true });
+  } catch (e) {
+    if (e instanceof RangeError) return res.status(400).json({ ok: false, error: e.message });
+    console.error('/api/conversations delete error:', e);
+    return res.status(500).json({ ok: false, error: 'delete failed' });
+  }
+});
+
+// ── Delete chat messages: one (DELETE /api/messages/:id) or many (POST /api/messages/delete {ids}) ──
+// Only the signed-in owner's rows can ever match; unknown / foreign ids are ignored, not reported.
+const msgUser = (req) => req.user?.id || (!isProd ? (req.query?.userId || req.body?.userId || 'u1') : null);
+
+app.delete('/api/messages/:id', async (req, res) => {
+  try {
+    const userId = msgUser(req);
+    if (!userId) return res.status(401).json({ ok: false, error: 'login required' });
+    const deleted = await deleteMessages(prisma, userId, [req.params.id]);
+    if (!deleted.length) return res.status(404).json({ ok: false, error: 'not found' });
+    return res.json({ ok: true, deleted });
+  } catch (e) {
+    if (e instanceof RangeError) return res.status(400).json({ ok: false, error: e.message });
+    console.error('/api/messages delete error:', e);
+    return res.status(500).json({ ok: false, error: 'delete failed' });
+  }
+});
+
+app.post('/api/messages/delete', async (req, res) => {
+  try {
+    const userId = msgUser(req);
+    if (!userId) return res.status(401).json({ ok: false, error: 'login required' });
+    const deleted = await deleteMessages(prisma, userId, req.body?.ids);
+    return res.json({ ok: true, deleted, count: deleted.length });
+  } catch (e) {
+    if (e instanceof RangeError) return res.status(400).json({ ok: false, error: e.message });
+    console.error('/api/messages bulk delete error:', e);
+    return res.status(500).json({ ok: false, error: 'delete failed' });
+  }
+});
+
+import { chatImageMiddleware, normalizeImage, chatImageNote, IMAGE_ONLY_PROMPT } from './lib/chatImage.js'; // ✅ picture + text turns
+const chatImage = chatImageMiddleware();
+
+app.post('/api/chat', chatImage, async (req, res) => {
   try {
     // Extract text from both naming conventions used by the frontend
     const text = String(req.body?.message || req.body?.text || '').trim();
@@ -1946,21 +2057,27 @@ app.post('/api/chat', async (req, res) => {
     // /handle-intent uses (runSkillCandidates/runBrainFlow), so behavior is
     // unchanged — just no internal HTTP hop.
     let said;
-    if (!clean) {
+    let conversationId;
+    let conversation;
+    if (!clean && !req.body?.image) {
       said = runSkillGreeting().said;
     } else {
-      const skillResult = await runSkillCandidates(clean, lower, userId);
+      // an owned id → that conversation (project or companion); omitted/unknown → the companion thread
+      try { await ensureGuestUser(userId); conversation = await resolveConversation(prisma, userId, req.body?.conversationId); conversationId = conversation.id; }
+      catch (convErr) { console.warn('[chat] conversation resolve failed (non-fatal):', convErr.message); }
+      noteUserReplyForProactive(userId, clean);
+      const skillResult = req.body?.image ? null : await runSkillCandidates(clean, lower, userId);
       if (skillResult) {
         said = skillResult.said;
         // ✅ NEW: this turn never reached runBrainFlow (which does its own
         // saving), so without this it was never persisted at all.
-        await persistSkillTurn(userId, clean, said);
+        await persistSkillTurn(userId, clean, said, conversationId);
       } else {
-        said = (await runBrainFlow(userId, clean, req.body?.image)).said;
+        said = (await runBrainFlow(userId, clean, req.body?.image, { conversationId, conversation })).said;
       }
     }
 
-    return res.json({ ok: true, reply: said, said });
+    return res.json({ ok: true, reply: said, said, conversationId });
   } catch (e) {
     console.error('/api/chat error:', e);
     res.status(500).json({ ok: false, error: 'chat failed' });
@@ -1972,7 +2089,7 @@ app.post('/api/chat', async (req, res) => {
 // uses, so tone engine, facts, and memory logic are byte-for-byte identical
 // to the non-streaming path — this endpoint only changes HOW the final text
 // reaches the client, not how it's produced.
-app.post('/api/chat-stream', async (req, res) => {
+app.post('/api/chat-stream', chatImage, async (req, res) => {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache, no-transform',
@@ -1989,7 +2106,9 @@ app.post('/api/chat-stream', async (req, res) => {
   };
 
   let closed = false;
-  req.on('close', () => { closed = true; });
+  // ✅ FIX: listen on the RESPONSE. `req` 'close' also fires once the request body has been read (multer/busboy),
+  // which set closed=true right away and silently dropped every chunk/ping/done of an image turn.
+  res.on('close', () => { if (!res.writableEnded) closed = true; });
 
   const keepAlive = setInterval(() => { if (!closed) send('ping', {}); }, 15000);
 
@@ -2000,21 +2119,29 @@ app.post('/api/chat-stream', async (req, res) => {
       : (isProd ? 'anonymous' : (req.body?.userId || 'u1'));
     const clean = text.trim();
     const lower = clean.toLowerCase();
+    if (req.body?.image) console.log(`[chat-stream] image turn: user=${userId} textLen=${clean.length} image=${Math.round(String(req.body.image).length / 1024)}KB`);
 
-    if (!clean) {
+    if (!clean && !req.body?.image) {
       const said = runSkillGreeting().said;
       send('chunk', { delta: said });
       send('done', { text: said });
       return res.end();
     }
 
-    const skillResult = await runSkillCandidates(clean, lower, userId);
+    // which conversation is this turn part of? (owned id → that one; omitted/unknown → the companion thread)
+    let conversationId;
+    let conversation;
+    try { await ensureGuestUser(userId); conversation = await resolveConversation(prisma, userId, req.body?.conversationId); conversationId = conversation.id; }
+    catch (convErr) { console.warn('[chat-stream] conversation resolve failed (non-fatal):', convErr.message); }
+
+    noteUserReplyForProactive(userId, clean);
+    const skillResult = req.body?.image ? null : await runSkillCandidates(clean, lower, userId);
     if (skillResult) {
       send('chunk', { delta: skillResult.said });
-      send('done', { text: skillResult.said });
       // ✅ NEW: same gap as /api/chat — a skill-handled turn here never
       // reached runBrainFlow, so it was never being persisted.
-      await persistSkillTurn(userId, clean, skillResult.said);
+      await persistSkillTurn(userId, clean, skillResult.said, conversationId);
+      send('done', { text: skillResult.said, conversationId });
       return res.end();
     }
 
@@ -2026,24 +2153,27 @@ app.post('/api/chat-stream', async (req, res) => {
     // message instead of leaving the client waiting forever.
     // ✅ NEW: Expert Mode flag from the client — forwarded straight through
     // to runBrainFlow, which branches internally.
-    const expertMode = Boolean(req.body?.expertMode);
+    const expertMode = req.body?.expertMode === true || req.body?.expertMode === 'true';
 
     // ✅ NEW: Expert Mode gets a longer ceiling — a multi-hop tool-calling
     // turn (web_fetch, code_analysis, etc. across up to 5 hops) can
     // legitimately take longer than the 25s tuned for a single normal-chat
     // call. Normal chat keeps the original 25s unchanged.
-    const brainTimeoutMs = expertMode ? 90000 : 25000;
+    const brainTimeoutMs = (expertMode || workModeFor(conversation)) ? 90000 : 25000;
 
     const { said } = await withFallbackTimeout(
       runBrainFlow(userId, clean, req.body?.image, {
         onToken: (delta) => { if (!closed) send('chunk', { delta }); },
         expertMode,
+        conversationId,
+        conversation,
       }),
       brainTimeoutMs,
       { said: QUOTA_FALLBACK_MSG }
     );
 
-    if (!closed) send('done', { text: said });
+    console.log(`[chat-stream] reply ready (${String(said || '').length} chars)${req.body?.image ? ' [image turn]' : ''}`);
+    if (!closed) send('done', { text: said, conversationId });
 
   } catch (e) {
     console.error('/api/chat-stream error:', e);
@@ -2072,6 +2202,7 @@ app.post('/api/ask', async (req, res) => {
     if (!clean) {
       said = runSkillGreeting().said;
     } else {
+      noteUserReplyForProactive(userId, clean);
       const skillResult = await runSkillCandidates(clean, lower, userId);
       said = skillResult ? skillResult.said : (await runBrainFlow(userId, clean, req.body?.image)).said;
     }
@@ -2166,7 +2297,8 @@ app.get('/api/search', async (req, res) => {
 // ───────── Daily Briefing API ─────────
 app.get('/api/daily-briefing', async (req, res) => {
   try {
-    const userId = req.user.id; // ✅ from JWT
+    const userId = req.user?.id || (!isProd ? String(req.query?.userId || req.body?.userId || 'u1') : null); // ✅ FIX: JWT first, dev fallback
+    if (!userId) return res.status(401).json({ ok: false, error: 'Unauthorized' });
     const briefing = await buildDailyBriefing({ userId });
     res.json({ ok: true, briefing });
   } catch (e) {
@@ -2186,7 +2318,7 @@ memoryRoute(app, prisma);
 app.use(express.static(path.join(__dirname, 'public')));
 
 // 🔧 DEBUG: skill'ni to'g'ridan-to'g'ri test qilish uchun endpoint
-app.post('/debug/run-skill', async (req, res) => {
+app.post('/debug/run-skill', adminRequired, async (req, res) => {
   try {
     const { userId = req.user?.id || 'debug_user', name, args = {} } = req.body || {}; // ✅ prefer JWT
 
@@ -2210,6 +2342,7 @@ app.post('/debug/run-skill', async (req, res) => {
 
 // ───────── CRON (reminder trigger) ─────────
 let stopCron = null;
+let resumeCron = null; // ✅ Sprint 3: kill switch pauses/resumes the same task
 function startCron() {
   const task = cron.schedule('* * * * *', async () => {
     try {
@@ -2237,10 +2370,11 @@ function startCron() {
     } catch (e) { console.error('cron error', e); }
   });
   stopCron = () => task.stop();
+  resumeCron = () => task.start();
 }
 
 // 🔍 DEBUG: Memory NLU + Fact saqlashni test qilish
-app.get('/debug/memory-save-demo', async (req, res) => {
+app.get('/debug/memory-save-demo', adminRequired, async (req, res) => {
   try {
     const user = await prisma.user.upsert({
       where: { id: 'DEBUG_MEMORY_USER' },
@@ -2270,13 +2404,62 @@ app.get('/debug/memory-save-demo', async (req, res) => {
 
 startCron();
 
+// ───────── Sovereign admin layer: kill-switch runtime wiring + /admin routes ─────────
+let proactiveRunnerHandle = null;
+let backgroundHalted = killSwitch.isEngaged('background'); // true when booted with SHERZ_KILL_SWITCH=1
+
+function startProactiveRunnerSafe() {
+  if (proactiveRunnerHandle) return; // never run two tick chains
+  proactiveRunnerHandle = startProactiveRunner({ prisma, timezone: DEFAULT_TZ });
+}
+function stopProactiveRunnerSafe() {
+  if (!proactiveRunnerHandle) return;
+  proactiveRunnerHandle.stop();
+  proactiveRunnerHandle = null;
+}
+
+// Booted engaged: startCron() above already scheduled the task, so pause it.
+if (backgroundHalted && stopCron) stopCron();
+
+killSwitch.onChange((s) => {
+  const halt = s.engaged && s.scopes.includes('background');
+  if (halt === backgroundHalted) return; // only act on real transitions
+  backgroundHalted = halt;
+  if (halt) {
+    stopProactiveRunnerSafe();
+    if (stopCron) stopCron();
+    console.warn('🛑 Kill switch: background halted (proactive runner + reminder cron).');
+  } else {
+    // A stopped runner can't be resumed (its `stopped` flag is one-way), so
+    // releasing the switch starts a fresh one. Its first tick is 5-15 min out.
+    startProactiveRunnerSafe();
+    if (resumeCron) resumeCron();
+    console.log('▶️ Kill switch released: background resumed.');
+  }
+});
+
+warnIfAdminMisconfigured();
+// Mounted at /admin, NOT /api: the /api gate skips auth entirely when
+// NODE_ENV !== 'production', and admin must not inherit that.
+app.use('/admin', adminRouter({
+  prisma,
+  resetFriendBrainState,
+  getRuntimeStatus: () => ({
+    proactiveRunner: proactiveRunnerHandle ? 'running' : 'stopped',
+    reminderCron: backgroundHalted ? 'paused' : 'running',
+    uptimeSec: Math.round(process.uptime()),
+    nodeEnv: isProd ? 'production' : 'development',
+  }),
+}));
+
 // ───────── SIMPLE TODO API (frontend uchun) ─────────
 
 // Todo qo‘shish
 app.post('/api/todo', async (req, res) => {
   try {
     const { text } = req.body || {};
-    const userId = req.user.id; // ✅ from JWT
+    const userId = req.user?.id || (!isProd ? String(req.query?.userId || req.body?.userId || 'u1') : null); // ✅ FIX: JWT first, dev fallback
+    if (!userId) return res.status(401).json({ ok: false, error: 'Unauthorized' });
 
     if (!text || !String(text).trim()) {
       return res
@@ -2298,7 +2481,8 @@ app.post('/api/todo', async (req, res) => {
 // Todo ro‘yxatini olish
 app.get('/api/todos', async (req, res) => {
   try {
-    const userId = req.user.id; // ✅ from JWT — ignore any ?userId= param
+    const userId = req.user?.id || (!isProd ? String(req.query?.userId || req.body?.userId || 'u1') : null); // ✅ FIX: JWT first, dev fallback
+    if (!userId) return res.status(401).json({ ok: false, error: 'Unauthorized' });
 
     const todos = await listTodos(prisma, userId, {
       includeDone: false,
@@ -2333,10 +2517,11 @@ const PORT = process.env.PORT || 3000;
         `SHERZ server running: http://localhost:${PORT} (${isProd ? 'prod' : 'dev'})`
       );
 
-      startProactiveRunner({
-        prisma,
-        timezone: DEFAULT_TZ, // 'Asia/Tashkent'
-      });
+      if (backgroundHalted) {
+        console.warn('🛑 Kill switch engaged at boot — proactive runner NOT started.');
+      } else {
+        startProactiveRunnerSafe();
+      }
     });
   }
 })();
@@ -2355,7 +2540,17 @@ process.on('SIGTERM', async () => {
   try {
     if (stopCron) stopCron();
     await prisma.$disconnect();
-  } finally {
-    process.exit(0);
-  }
+    } finally {
+      process.exit(0);
+    }
 });
+
+/// Har 1 soatda eskirgan mehmon foydalanuvchilarni o'chirib turadi
+const guestPurgeTimer = setInterval(async () => {
+  try {
+    await purgeStaleGuests(prisma);
+  } catch (err) {
+    console.error('Error purging stale guests:', err);
+  }
+}, 60 * 60 * 1000);
+guestPurgeTimer.unref(); // don't keep the process alive just for this timer

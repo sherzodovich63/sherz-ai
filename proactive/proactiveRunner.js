@@ -3,6 +3,8 @@ import { runProactiveDecisionOnce } from './proactiveDecisionEngine.js';
 // ✅ LAB5: realtime SSE push
 import { ssePushToUser } from '../realtime/sseHub.js';
 import eventBus from '../lib/eventBus.js';
+import { isEngaged as killSwitchEngaged } from '../lib/killSwitch.js'; // ✅ Sprint 3 admin kill-switch
+import { checkProactiveSend, rememberProactiveSend } from './sendGuard.js'; // ✅ Loop fix: cooldown + text/intent dedupe at the delivery point
 
 // ✅ LAB6: Boundary Intelligence
 import { decideBoundaryForUser, applyBoundaryOutcomeToPolicy } from './boundary/boundaryIntelligence.js';
@@ -210,10 +212,50 @@ async function safeUpdateProactiveEvent({ prisma, proactiveEventId, data }) {
 }
 
 /**
+ * ✅ Sprint 3: a delivery was blocked by the kill switch AFTER the branch had
+ * already written awaitingReply:true + a 24h reply deadline onto the event row.
+ * Left alone, expireAwaitingReplies/boundaryIntelligence would later read that
+ * as "the user ignored SHERZ" and could wrongly escalate to respect /
+ * soft-presence mode over a message the user never received. So: clear it.
+ */
+async function abortUndeliveredEvent({ prisma, proactiveEventId, reason = 'kill_switch' }) {
+  await safeUpdateProactiveEvent({
+    prisma,
+    proactiveEventId,
+    data: {
+      kind: `${reason}_blocked`, // 'kill_switch_blocked' (default) or a sendGuard reason, e.g. 'duplicate_text_blocked'
+      shouldMessage: false,
+      awaitingReply: false,
+      replyDeadlineAt: null,
+    },
+  });
+  return { sent: false, mode: reason, proactiveEventId };
+}
+
+/**
  * ✅ LAB5 helper: chatga yozish + SSE push
  * (UI’da proactive message ko‘rinishi uchun)
  */
 async function deliverProactiveToUser({ prisma, userId, text, meta }) {
+  // ✅ Sprint 3: last line of defense at the single point where a proactive
+  // message can reach the user — covers a tick that was already mid-flight
+  // (e.g. waiting on the LLM) when the admin engaged the kill switch.
+  if (killSwitchEngaged('background')) {
+    console.log('🛑 deliverProactiveToUser blocked by kill switch');
+    return { blocked: true };
+  }
+
+  // ✅ Loop fix: the permission / soft_presence branches decide from boundary
+  // history alone and never consult the decision's cooldown, so nothing used to
+  // stop the same ask every tick. This is the one point every send passes
+  // through: enforce min-gap + same-text + same-intent dedupe here. Fails closed.
+  const guardIntent = meta?.boundaryDecision || 'normal';
+  const guard = await checkProactiveSend({ prisma, userId, text, intent: guardIntent });
+  if (!guard.allow) {
+    console.log(`🛑 deliverProactiveToUser blocked by send guard: ${guard.reason}`, { userId, intent: guardIntent });
+    return { blocked: true, reason: guard.reason };
+  }
+
   let msgRow = null;
 
   // 1) DB chat log
@@ -224,8 +266,7 @@ try {
         data: {
           userId,
           role: 'assistant',
-          content: text,
-          meta: { proactive: true, ...(meta || {}) },
+          text, // ✅ FIX: Message model field is `text` (server.js writes `text:` everywhere); `content:` threw and the empty catch hid it, so proactive messages were never persisted
         },
       });
     } else if (prisma?.chatMessage?.create) {
@@ -262,6 +303,9 @@ try {
       console.log('❌ SSE proactive error:', e?.message || e);
     }
 
+  // ✅ Loop fix: in-memory record of this send, independent of any DB write
+  rememberProactiveSend({ userId, text, intent: guardIntent });
+
   return msgRow;
 }
 
@@ -273,6 +317,11 @@ try {
  * This wraps your existing LAB5 runProactiveDecisionOnce() and overrides delivery when needed.
  */
 async function runBoundaryAwareProactiveOnce({ prisma, userId, timezone, eventName = null, eventMeta = null }) {
+  // ✅ Sprint 3: don't even start a decision cycle (signals, LLM message generation) while halted
+  if (killSwitchEngaged('background')) {
+    return { sent: false, mode: 'kill_switch', proactiveEventId: null };
+  }
+
   // 0) Get vibe context for friend-style messages
   const styleCtx = await getStyleContext({ prisma, userId });
 
@@ -282,7 +331,7 @@ async function runBoundaryAwareProactiveOnce({ prisma, userId, timezone, eventNa
   let latestSignals = null;
 
   // We will NOT let LAB5 auto-deliver; we intercept deliverFn.
-  await runProactiveDecisionOnce({
+  const engineResult = await runProactiveDecisionOnce({ // ✅ FIX: keep the return value — it carries the generated message text
     userId,
     prisma,
     timezone,
@@ -373,7 +422,10 @@ logBoundaryDecision({ userId, boundary, policyBefore, policyAfter: null });
       eventMeta,
     };
 
-    await deliverProactiveToUser({ prisma, userId, text: msg, meta: finalMeta });
+    const deliveredResult = await deliverProactiveToUser({ prisma, userId, text: msg, meta: finalMeta });
+    // ✅ Sprint 3: blocked mid-cycle -> nothing was delivered, so no sent-marking, no
+    // cooldown/cap spend, no boundary-policy update, and the event row is neutralized.
+    if (deliveredResult?.blocked) return abortUndeliveredEvent({ prisma, proactiveEventId, reason: deliveredResult.reason });
     await markProactiveSent({ prisma, proactiveEventId });
     // ✅ FIX: cooldown only consumed on confirmed delivery (this branch
     // delivers a real message, so it counts).
@@ -455,7 +507,10 @@ logBoundaryDecision({ userId, boundary, policyBefore, policyAfter: null });
       eventMeta,
     };
 
-    await deliverProactiveToUser({ prisma, userId, text: msg, meta: finalMeta });
+    const deliveredResult = await deliverProactiveToUser({ prisma, userId, text: msg, meta: finalMeta });
+    // ✅ Sprint 3: blocked mid-cycle -> nothing was delivered, so no sent-marking, no
+    // cooldown/cap spend, no boundary-policy update, and the event row is neutralized.
+    if (deliveredResult?.blocked) return abortUndeliveredEvent({ prisma, proactiveEventId, reason: deliveredResult.reason });
     await markProactiveSent({ prisma, proactiveEventId });
     // ✅ FIX: cooldown only consumed on confirmed delivery.
     await recordProactiveSent({ prisma, userId, now: nowForCooldown });
@@ -470,7 +525,7 @@ logBoundaryDecision({ userId, boundary, policyBefore, policyAfter: null });
 
   // 6) Normal path: use LAB5 decision if shouldMessage true
   if (latestDecision?.shouldMessage) {
-    const msg = latestDecision.message;
+    const msg = latestDecision.message || engineResult?.message; // ✅ FIX: decideProactive() never returns `message`; the text lives in the engine's return value
 
     // Update boundary fields if available
     await safeUpdateProactiveEvent({
@@ -497,7 +552,10 @@ logBoundaryDecision({ userId, boundary, policyBefore, policyAfter: null });
       eventMeta,
     };
 
-    await deliverProactiveToUser({ prisma, userId, text: msg, meta: finalMeta });
+    const deliveredResult = await deliverProactiveToUser({ prisma, userId, text: msg, meta: finalMeta });
+    // ✅ Sprint 3: blocked mid-cycle -> nothing was delivered, so no sent-marking, no
+    // cooldown/cap spend, no boundary-policy update, and the event row is neutralized.
+    if (deliveredResult?.blocked) return abortUndeliveredEvent({ prisma, proactiveEventId, reason: deliveredResult.reason });
     await markProactiveSent({ prisma, proactiveEventId });
     // ✅ FIX: cooldown only consumed on confirmed delivery.
     await recordProactiveSent({ prisma, userId, now: nowForCooldown });
@@ -546,6 +604,7 @@ export function startProactiveRunner({ prisma, timezone }) {
         : [{ userId: "LOCAL_USER" }];
 
       for (const u of users) {
+        if (killSwitchEngaged('background')) break; // ✅ Sprint 3: stop mid-tick, don't finish the user list
         const userId = u.userId; // ✅ u.id emas!
 
         console.log("[proactive] checking userId =", userId);

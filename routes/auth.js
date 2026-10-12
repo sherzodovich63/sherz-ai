@@ -14,7 +14,19 @@
 import { Router }  from 'express';
 import bcrypt      from 'bcryptjs';
 import { z }       from 'zod';
-import { signJwt, authRequired } from '../middleware/auth.js';
+import { OAuth2Client } from 'google-auth-library';
+import { signJwt, authRequired, optionalAuth } from '../middleware/auth.js';
+import { googleLogin } from '../lib/googleLogin.js';
+import { isGuestId } from '../lib/guestMerge.js';
+
+const googleClient = new OAuth2Client();
+async function verifyGoogleIdToken(credential) {
+  const ticket = await googleClient.verifyIdToken({
+    idToken: credential,
+    audience: process.env.GOOGLE_CLIENT_ID,
+  });
+  return ticket.getPayload();
+}
 
 // ── Zod schemas ────────────────────────────────────────────────
 const RegisterSchema = z.object({
@@ -189,7 +201,35 @@ export function authRouter(prisma) {
   });
 
   // ──────────────────────────────────────────────────────────────
-  // GET /api/auth/google
+  // POST /api/auth/google   (ID-token flow — used by "Sign in with Google")
+  // Body: { credential }   Header (optional): Authorization: Bearer <guest JWT>
+  // The page never navigates away, so the in-memory guest session survives and
+  // its chat + facts are merged into the Google account in the same request.
+  // ──────────────────────────────────────────────────────────────
+  router.post('/google', optionalAuth, async (req, res) => {
+    if (!process.env.GOOGLE_CLIENT_ID) {
+      return res.status(503).json({ ok: false, error: 'Google sign-in not configured' });
+    }
+    try {
+      // guestId comes ONLY from the verified guest JWT, never from the body
+      const guestId = isGuestId(req.user?.id) ? req.user.id : null;
+      const { status, body } = await googleLogin({
+        prisma,
+        verifyIdToken: verifyGoogleIdToken,
+        signJwt,
+        credential: req.body?.credential,
+        guestId,
+      });
+      return res.status(status).json(body);
+    } catch (err) {
+      console.error('[auth/google] error:', err?.message || err);
+      return res.status(500).json({ ok: false, error: 'Google sign-in failed' });
+    }
+  });
+
+  // ──────────────────────────────────────────────────────────────
+  // GET /api/auth/google  (legacy redirect flow — remove once the frontend uses
+  // POST /google; a full-page redirect destroys the in-memory guest session)
   // Redirects the browser to Google's OAuth consent screen.
   // Frontend: window.location.href = '/api/auth/google'
   // ──────────────────────────────────────────────────────────────

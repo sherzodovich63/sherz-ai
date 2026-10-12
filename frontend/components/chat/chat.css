@@ -1,0 +1,42 @@
+/* Rigid layout: ONE element scrolls (.chat-scroller). Every flex ancestor between the
+   viewport and the scroller must be min-height:0, otherwise the content grows the page
+   past the screen and the latest messages (and the scrollbar) disappear. */
+html, body { height: 100%; margin: 0; }
+
+.chat-app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;           /* fallback */
+  height: 100dvh;          /* mobile browsers: excludes the collapsing URL bar */
+  min-height: 0;
+  background: var(--bg, #fff);
+  color: var(--fg, #111);
+}
+.chat-header   { flex: 0 0 auto; padding: 12px 16px; border-bottom: 1px solid var(--line, #e5e5e5); }
+.chat-body     { position: relative; flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+.chat-scroller {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;        /* a real, visible scrollbar — never overflow:hidden */
+  overscroll-behavior: contain;
+  overflow-anchor: none;   /* we restore scroll position ourselves when prepending */
+  scrollbar-gutter: stable;
+  padding: 16px;
+}
+.chat-composer { flex: 0 0 auto; display: flex; gap: 8px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line, #e5e5e5); }
+.chat-composer textarea { flex: 1; resize: none; max-height: 30dvh; font: inherit; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line, #ccc); background: transparent; color: inherit; }
+.chat-composer button { flex: 0 0 auto; padding: 0 16px; border-radius: 12px; border: 0; background: #4f46e5; color: #fff; font: inherit; cursor: pointer; }
+.chat-composer button:disabled { opacity: .5; cursor: default; }
+
+.chat-list   { display: flex; flex-direction: column; gap: 8px; max-width: 48rem; margin: 0 auto; }
+.msg         { max-width: min(42rem, 85%); padding: 8px 12px; border-radius: 14px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; }
+.msg-user    { align-self: flex-end;   background: #4f46e5; color: #fff; border-bottom-right-radius: 4px; }
+.msg-ai      { align-self: flex-start; background: var(--ai, #f1f1f4); border-bottom-left-radius: 4px; }
+.chat-status { text-align: center; font-size: 12px; opacity: .6; padding: 4px 0; }
+.chat-loading { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); padding: 4px 12px; border-radius: 999px; font-size: 12px; background: var(--ai, #f1f1f4); box-shadow: 0 1px 6px rgba(0,0,0,.15); pointer-events: none; }
+.chat-sentinel { height: 1px; }
+.chat-jump { position: absolute; right: 16px; bottom: 12px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line, #ccc); background: var(--bg, #fff); color: inherit; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+
+@media (prefers-color-scheme: dark) {
+  .chat-app { --bg: #121214; --fg: #ececf1; --line: #2a2a30; --ai: #202026; }
+}

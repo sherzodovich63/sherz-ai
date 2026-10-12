@@ -38,6 +38,7 @@ import {
 import { buildFullSystemContext } from './systemContext.js';
 import { getToolSchemas, executeTool } from './tools.js';
 import { isExpertModeAllowed, isToolAllowed } from './expertModePermissions.js';
+import { isEngaged as killSwitchEngaged } from '../lib/killSwitch.js';
 
 function getLastUserText(messages = []) {
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -59,7 +60,7 @@ function getLastUserText(messages = []) {
  * @param {number} [params.maxToolHops=5] - safety cap so a confused loop can't run away
  * @returns {Promise<{ type:string, content:string, toolTrace:Array, hops:number }>}
  */
-export async function runExpertTurn({ userId, messages, prisma, image, onToken, maxToolHops = 5 }) {
+export async function runExpertTurn({ userId, messages, prisma, image, onToken, maxToolHops = 5, workMode = null }) {
   console.log('🛠️ SHERZ Expert Mode turn', { userId, msgCount: messages?.length, maxToolHops });
 
   // 1) Safety — same gate as normal chat; Expert Mode does not bypass it
@@ -95,6 +96,7 @@ export async function runExpertTurn({ userId, messages, prisma, image, onToken, 
     messages,
     userText,
     isTrivialGreeting: false,
+    workMode,
     deps: {
       extractNameAndStyle,
       detectEmotion,
@@ -106,7 +108,7 @@ export async function runExpertTurn({ userId, messages, prisma, image, onToken, 
       userContextAnalyzer,
       buildSystemPrompt,
       buildResponseInstruction,
-      friendBrainState: getFriendBrainState(),
+      friendBrainState: getFriendBrainState(userId), // ✅ per-user (was one global object)
     },
   });
 
@@ -151,9 +153,14 @@ export async function runExpertTurn({ userId, messages, prisma, image, onToken, 
 
   let hops = 0;
   let finalText = '';
+  let haltedByKillSwitch = false;
   const toolTrace = [];
 
   while (hops < maxToolHops) {
+    // ✅ Sprint 3: admin kill-switch ('expert' scope) is checked at the top of
+    // every hop and again before each individual tool runs, so an in-flight
+    // multi-tool turn stops between tools, not only between turns.
+    if (killSwitchEngaged('expert')) { haltedByKillSwitch = true; break; }
     hops++;
     const isLastAllowedHop = hops >= maxToolHops;
 
@@ -183,6 +190,7 @@ export async function runExpertTurn({ userId, messages, prisma, image, onToken, 
     });
 
     for (const call of toolCalls) {
+      if (killSwitchEngaged('expert')) { haltedByKillSwitch = true; break; }
       const toolName = call.function?.name;
       let args = {};
       try {
@@ -215,8 +223,15 @@ export async function runExpertTurn({ userId, messages, prisma, image, onToken, 
         content: JSON.stringify(toolResult).slice(0, 8000),
       });
     }
+    if (haltedByKillSwitch) break;
     // loop continues — model sees the tool result(s), may call more tools
     // or produce a final answer on the next hop.
+  }
+
+  if (haltedByKillSwitch) {
+    // Set before the forced-final-answer fallback below, so that fallback is
+    // skipped — no further model calls once the admin has halted Expert Mode.
+    finalText = "Expert Mode administrator tomonidan vaqtincha to'xtatildi.";
   }
 
   if (!finalText) {
@@ -247,5 +262,6 @@ export async function runExpertTurn({ userId, messages, prisma, image, onToken, 
     content: finalText,
     toolTrace,
     hops,
+    haltedByKillSwitch,
   };
 }

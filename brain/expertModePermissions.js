@@ -15,6 +15,8 @@
 // The tiers below exist for future use (e.g. rate-limiting expert-tier
 // tools more strictly than companion ones), not to restrict access today.
 
+import { isEngaged as killSwitchEngaged } from '../lib/killSwitch.js';
+
 const COMPANION_TOOLS = new Set([
   'get_server_time',
   'todo_add',
@@ -47,6 +49,8 @@ const ALL_ALLOWED_TOOLS = new Set([...COMPANION_TOOLS, ...EXPERT_TOOLS]);
  */
 export async function isExpertModeAllowed({ userId } = {}) {
   if (!userId) return { allowed: false, reason: 'NO_USER_ID' };
+  // ✅ Sprint 3: admin kill-switch ('expert' scope) refuses new Expert Mode turns
+  if (killSwitchEngaged('expert')) return { allowed: false, reason: 'KILL_SWITCH' };
   return { allowed: true };
 }
 
@@ -57,6 +61,10 @@ export async function isExpertModeAllowed({ userId } = {}) {
  * @returns {{ allowed: boolean, tier: 'companion'|'expert'|null, reason?: string }}
  */
 export function isToolAllowed({ toolName } = {}) {
+  // ✅ Sprint 3: defense in depth — even if a loop-level check were missed, no tool passes the gate while engaged
+  if (killSwitchEngaged('expert')) {
+    return { allowed: false, tier: null, reason: 'KILL_SWITCH' };
+  }
   if (!toolName || !ALL_ALLOWED_TOOLS.has(toolName)) {
     return { allowed: false, tier: null, reason: `Tool '${toolName}' is not in the Expert Mode allowlist.` };
   }

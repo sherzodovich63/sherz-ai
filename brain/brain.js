@@ -24,6 +24,7 @@ import { loadProfileSummary, buildProfileSummaryBlock } from '../memory/profileS
 // lines 307-452 — moved to its own file so runExpertTurn.js can reuse the
 // exact same memory integration instead of a third copy of it).
 import { buildFullSystemContext } from './systemContext.js';
+import { workModelName, WORK_TIMEOUT_MS } from './workMode.js'; // ✅ Project → Work/Engineering mode
 
 // ✅ FAZA 6 LAB1: Continue + BrainState (NEW)
 import { detectContinue } from '../nlu/detectContinue.js';
@@ -32,25 +33,22 @@ import { loadLastState, saveLastState } from '../memory/lastState.js';
 // ✅ SHERZ_HEART v2: personality baseline calculator (background, non-blocking)
 import { maybeRecalculateBaseline } from './personalityEngine.js';
 
+// ✅ Friend Brain state is now PER USER (was one module-level object shared by everyone)
+import { getFriendBrainState, setFriendBrainState, resetFriendBrainState } from './friendBrainStore.js';
+
 /**
  * SHERZ Brain — Faza 2 (Friend Mode) + Faza 3 (Deep Context) + FAZA 4 (Adaptive Personality Memory) + FAZA 5 (Memory RAG)
  * + ✅ FAZA 6: LAB1 continue_from_last + last_state fix (BrainState)
  */
 
-// ✅ Friend Brain state (minimal, in-memory)
-let friendBrainState = {
-  lastPhase: null,
-  lastHelpProvided: false,
-  updatedAt: Date.now(),
-};
-
-// ✅ NEW: read access for runExpertTurn.js, which needs this module's
-// current friendBrainState for buildFullSystemContext but shouldn't mutate
-// it directly (only runBrain()'s own updateFriendBrainState() call does
-// that, later in this file).
-export function getFriendBrainState() {
-  return friendBrainState;
-}
+// ✅ Friend Brain state lives in friendBrainStore.js, keyed by userId. It used to
+// be ONE module-level object here, so one user's conversational phase (HELP /
+// LISTEN) shaped every other user's replies.
+//   getFriendBrainState(userId)   -> that user's state (fresh if none / anonymous)
+//   resetFriendBrainState(userId) -> clears one user; no argument clears everyone
+//                                    (Sprint 3 admin session reset uses both)
+// Re-exported unchanged for runExpertTurn.js and server.js/admin.
+export { getFriendBrainState, resetFriendBrainState };
 
 // Oxirgi user xabarini olish
 function getLastUserText(messages = []) {
@@ -193,25 +191,15 @@ async function handleContinueFromLast({ prisma, userId }) {
   if (!prisma || !userId) return null;
 
   const st = await loadLastState(prisma, userId);
-  if (!st) {
-    return {
-      type: 'assistant',
-      content: "Qayerdan davom ettiray? Oxirgi holat topilmadi.",
-      meta: { continued: false, reason: 'NO_STATE' },
-    };
-  }
+  // No saved state / stale / empty → return null so the model answers from the
+  // actual conversation instead of a fixed sentence.
+  if (!st) return null;
 
   // Stale guard (30 daqiqa)
   const MAX_AGE_MIN = 30;
   const ageMin = st.updatedAt ? (Date.now() - new Date(st.updatedAt).getTime()) / 60000 : 9999;
 
-  if (ageMin > MAX_AGE_MIN) {
-    return {
-      type: 'assistant',
-      content: "Oxirgi holat biroz eskirib ketgan. Qaysi vazifani davom ettiray?",
-      meta: { continued: false, reason: 'STALE' },
-    };
-  }
+  if (ageMin > MAX_AGE_MIN) return null;
 
   // lastResult’dan content olish
   const last =
@@ -219,22 +207,16 @@ async function handleContinueFromLast({ prisma, userId }) {
       ? String(st.lastResult.content)
       : null;
 
-  if (!last || last.length < 5) {
-    return {
-      type: 'assistant',
-      content: "Oxirgi javob topilmadi. Qaysi ishni davom ettiray?",
-      meta: { continued: false, reason: 'NO_LAST_RESULT' },
-    };
-  }
+  if (!last || last.length < 5) return null;
 
   return {
     type: 'assistant',
-    content: `Davom etamiz. Oxirgi joy:\n\n${last}`,
+    content: last,
     meta: { continued: true, reason: 'OK' },
   };
 }
 
-export async function runBrain({ userId, messages, prisma, image, maxToolHops = 3, onToken }) {
+export async function runBrain({ userId, messages, prisma, image, maxToolHops = 3, onToken, workMode = null }) {
   console.log('🧠 SHERZ Brain called (Friend Mode + Deep Context)', {
     userId,
     msgCount: messages.length,
@@ -254,6 +236,9 @@ export async function runBrain({ userId, messages, prisma, image, maxToolHops = 
   // 2) User text
   const userText = getLastUserText(messages);
 
+  // ✅ Per-user conversational state (this turn's working copy; saved back below)
+  let friendBrainState = getFriendBrainState(userId);
+
   // ✅ Latency fast-path: a bare greeting/ack ("salom", "rahmat", "ok") gets
   // zero value from RAG fact retrieval or profile-summary loading — those
   // add a full Prisma query + a live OpenAI embeddings round-trip + summary
@@ -262,42 +247,21 @@ export async function runBrain({ userId, messages, prisma, image, maxToolHops = 
   // force the fastest model, regardless of what SHERZ_BRAIN_MODEL is set to.
   const trimmedUserText = (userText || '').trim();
   const isTrivialGreeting =
+    !workMode &&   // inside a Project every turn gets the full context + the work model
     trimmedUserText.length > 0 &&
     trimmedUserText.length <= 24 &&
     /^(salom|assalomu\s*alaykum|assalomu|salomlar|hi|hey|hello|ok|okay|rahmat|rahmat!|thanks|thank\s*you|ha|yo['’]q|xo['’]p|zo['’]r)[\s!.?]*$/i.test(trimmedUserText);
 
-  // Oxirgi foydalanuvchi xabarini rasm bilan boyitish
-   if (image && messages.length > 0) {
-      const lastMsg = messages[messages.length - 1];
-      if (lastMsg.role === 'user') {
-        // Matnni va rasmni OpenAI Vision formatiga o'tkazamiz
-        lastMsg.content = [
-            { type: "text", text: lastMsg.content },
-            { type: "image_url", image_url: { url: image } }
-        ];
-    }
-  }console.log('🧪 LAST USER TEXT:', userText);
+  // (the image is attached to the last user message further below, right before the model call —
+  // doing it here made normalizeRecentMessages() turn the vision array into "[object Object]" for the context analyzer)
+  console.log('🧪 LAST USER TEXT:', userText);
 
   console.log('🧪 detectContinue?', userText, detectContinue(userText));
   
   // ✅ Greeting hard-override (LLMga bormaydi)
-  const greetingOnly = isGreetingOnly(userText);
-  if (greetingOnly) {
-    return {
-      type: 'assistant',
-      content: 'Salom 🙂 Qalay? Bugun nima gap?',
-      safety,
-      meta: {
-        policy: { strategy: 'greet' },
-        ctx: {
-          mode: 'LISTEN',
-          confidence: 1,
-          internalSummary: 'GREETING_ONLY → hard response',
-        },
-        friendBrainState,
-      },
-    };
-  }
+  // (removed) Greetings used to return one fixed string without calling the
+  // model, so every "salom" got the identical reply. They now go through the
+  // normal model path; the prompt's anti-repetition rules keep them varied.
 
   // ✅ FAZA 6 LAB1: Continue hard-override (LLMga bormaydi)
   // Bu branch last_state’ni 100% deterministik qiladi.
@@ -328,6 +292,7 @@ export async function runBrain({ userId, messages, prisma, image, maxToolHops = 
     messages,
     userText,
     isTrivialGreeting,
+    workMode,
     deps: {
       extractNameAndStyle,
       detectEmotion,
@@ -344,6 +309,18 @@ export async function runBrain({ userId, messages, prisma, image, maxToolHops = 
   });
   const { systemPrompt, userEmotion, policy, ctx, emotionSummary, memoryInjected } = fullContext;
   let userProfile = fullContext.userProfile;
+
+  // Oxirgi foydalanuvchi xabarini rasm bilan boyitish (OpenAI Vision formatiga o'tkazamiz)
+  if (image && messages.length > 0) {
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg.role === 'user') {
+      lastMsg.content = [
+        { type: 'text', text: String(lastMsg.content || '') },
+        { type: 'image_url', image_url: { url: image } },
+      ];
+      console.log('🖼️ [brain] image attached to the model call (' + Math.round(image.length / 1024) + ' KB data URL)');
+    }
+  }
 
   // 6) Modelga boradigan messages
   const finalMessages = [
@@ -368,9 +345,12 @@ export async function runBrain({ userId, messages, prisma, image, maxToolHops = 
   // independent of whatever SHERZ_BRAIN_MODEL is configured to for normal
   // conversation — this guarantees the fast path stays fast even if that
   // env var points at something heavier.
-  const selectedModel = isTrivialGreeting
-    ? (process.env.SHERZ_FAST_MODEL || 'gpt-4o-mini')
-    : (process.env.SHERZ_BRAIN_MODEL || 'gpt-4.1-mini');
+  const selectedModel = workMode
+    ? workModelName()
+    : isTrivialGreeting
+      ? (process.env.SHERZ_FAST_MODEL || 'gpt-4o-mini')
+      : (process.env.SHERZ_BRAIN_MODEL || 'gpt-4.1-mini');
+  const llmTimeoutMs = workMode ? WORK_TIMEOUT_MS : 18000; // engineering answers are long
 
   try {
     const useStream = typeof onToken === 'function';
@@ -393,7 +373,7 @@ export async function runBrain({ userId, messages, prisma, image, maxToolHops = 
           stream: true,
         },
         {
-          timeout: 18000,
+          timeout: llmTimeoutMs,
           maxRetries: 1,
         }
       );
@@ -414,7 +394,7 @@ export async function runBrain({ userId, messages, prisma, image, maxToolHops = 
           temperature: 0.6,
         },
         {
-          timeout: 18000,
+          timeout: llmTimeoutMs,
           maxRetries: 1,
         }
       );
@@ -428,35 +408,16 @@ export async function runBrain({ userId, messages, prisma, image, maxToolHops = 
       content = stripGreetingComfort(content);
     }
 
-    // ✅ SUPPORT bo‘lsa savol majburiy
+    // (removed) Forced canned follow-up questions ("Nima bo‘ldi o‘zi?" etc.).
+    // Whether to ask a question, and which one, is the model's call based on
+    // what the user actually said.
     if (policy?.strategy === 'support') {
-      const hasQuestion =
-        /[?？]/.test(content) || /\b(nima bo‘ldi|qaysi|nimasi|nega|qachon|kim|qanday)\b/i.test(content);
-
-      if (!hasQuestion) {
-        const q =
-          ctx?.mode === 'INQUIRE'
-            ? "Nimadan shunaqa bo‘lib qolding — aynan nima sabab bo‘lyapti?"
-            : 'Nima bo‘ldi o‘zi?';
-        content = content.trim() + '\n\n' + q;
-      }
-
       content = content.replace(/Agar gaplash.*?bosim qilmayman\.?/i, '').trim();
     }
 
-    // ✅ INQUIRE/LISTEN bo‘lsa erta taskinlarni kesamiz + savol qo‘shamiz
-    if (ctx?.mode === 'INQUIRE' || ctx?.mode === 'LISTEN') {
+    // INQUIRE/LISTEN: still trim premature reassurance, but append nothing.
+    if (!workMode && (ctx?.mode === 'INQUIRE' || ctx?.mode === 'LISTEN')) {
       content = stripEarlyComfort(content);
-
-      const hasQ = /[?？]/.test(content);
-      if (
-        !hasQ &&
-        ctx?.mode === 'INQUIRE' &&
-        Array.isArray(ctx?.suggestedQuestions) &&
-        ctx.suggestedQuestions[0]
-      ) {
-        content = (content ? content.trim() + '\n\n' : '') + ctx.suggestedQuestions[0];
-      }
     }
 
     // ✅ HELP berilganini minimal aniqlab state yangilaymiz
@@ -468,15 +429,10 @@ export async function runBrain({ userId, messages, prisma, image, maxToolHops = 
       phase: gaveHelp ? 'HELP' : 'LISTEN',
       helpProvided: gaveHelp ? true : undefined,
     });
+    setFriendBrainState(userId, friendBrainState); // ✅ persist for THIS user only
 
-    // ✅ COMFORT qo‘shish: faqat ctx.mode COMFORT bo‘lsa
-    const emo = String(userEmotion?.label || 'neutral').toLowerCase();
-    const comfortFriendly = ['sad', 'sadness', 'anxious', 'fear', 'tired', 'stress', 'stressed'].includes(emo);
-    const isAnger = ['angry', 'anger', 'mad'].includes(emo);
-
-    if (ctx?.mode === 'COMFORT' && comfortFriendly && !isAnger) {
-      content = content.trim() + "\n\nYolg‘iz emassan. Buni birga hal qilamiz.";
-    }
+    // (removed) Fixed "Yolg‘iz emassan. Buni birga hal qilamiz." suffix on COMFORT
+    // turns — comfort now comes from the model's own wording.
 
     // ✅ FAZA 4: “Sizni nima deb chaqiray?” chiqqan bo‘lsa — 1 marta flag
     try {

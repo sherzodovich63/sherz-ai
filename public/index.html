@@ -4,6 +4,20 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>SHERZ</title>
+  <meta name="theme-color" content="#070709" id="metaThemeColor">
+  <script>
+  /* Apply saved theme/accent before first paint. Default = dark (the original look). */
+  (function(){
+    var d = document.documentElement, t = 'dark', a = 'auto';
+    try{ t = localStorage.getItem('sherz_theme') || 'dark'; a = localStorage.getItem('sherz_accent') || 'auto'; }catch(e){}
+    if (['system','dark','light'].indexOf(t) < 0) t = 'dark';
+    if (['auto','violet','emerald','blue'].indexOf(a) < 0) a = 'auto';
+    var light = t === 'light' || (t === 'system' && window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches);
+    d.setAttribute('data-theme', light ? 'light' : 'dark');
+    d.setAttribute('data-theme-pref', t);
+    d.setAttribute('data-accent', a);
+  })();
+  </script>
   <link rel="icon" href="/sherz-icon.svg" type="image/svg+xml">
   <style>
   @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
@@ -1149,7 +1163,7 @@ textarea.ta {
     gap: 4px;
     flex-shrink: 0;
   }
-  #btnLeftPanel, #btnBrainPanel, #openSettings, .status-pill{
+  #btnLeftPanel, #btnBrainPanel, .status-pill{
     flex-shrink: 0;
     padding: 4px 8px;
     font-size: 11px;
@@ -1168,6 +1182,7 @@ html.platform-ios body {
 }
 
  </style>
+  <link rel="stylesheet" href="/sherz-modern.css">
 </head>
 
 <body>
@@ -1177,11 +1192,13 @@ html.platform-ios body {
     <header class="topbar">
       <div class="topbar-inner">
         <div class="brand">
+          <div id="orbShell" class="s-idle" title="SHERZ"><canvas id="orbCanvas"></canvas></div>
           <div class="brand-name">SHERZ</div>
+          <div id="modeBadge" class="mode-badge" hidden title="Companion — your personal thread"><span class="mb-ico" aria-hidden="true"></span><span id="modeBadgeText" class="mb-text">Companion</span></div>
         </div>
         <div class="top-actions">
           <!-- NEW: Desktop panel toggles (UI buzilmaydi) -->
-          <button id="btnLeftPanel" class="btn-ghost" type="button" title="Sidebar (Memory/Tasks)">
+          <button id="btnLeftPanel" class="btn-ghost" type="button" title="Menu (chats)" aria-expanded="false" aria-controls="leftPanel">
             ≡ <span class="muted">Menu</span>
           </button>
 
@@ -1190,11 +1207,10 @@ html.platform-ios body {
             <span id="statusText">Here</span>
           </div>
 
-          <button id="btnBrainPanel" class="btn-ghost" type="button" title="Brain Panel">
-            Brain <span id="brainLabel" class="muted">Brain ▸</span>
+          <button id="btnBrainPanel" class="btn-ghost" type="button" title="Brain" aria-label="Brain" aria-expanded="false" aria-controls="brainPanel">
+            <svg class="bb-ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2.5"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 2.5v3M15 2.5v3M9 18.5v3M15 18.5v3M2.5 9h3M2.5 15h3M18.5 9h3M18.5 15h3"/></svg>
+            <span class="bb-text">Brain</span><span id="brainLabel" class="bb-chev" aria-hidden="true">▸</span>
           </button>
-
-          <button id="openSettings" class="btn" type="button">Settings</button>
         </div>
       </div>
     </header>
@@ -1202,125 +1218,124 @@ html.platform-ios body {
     <!-- NEW: 3-column shell (left / center / right) -->
     <section class="shell">
       <!-- LEFT PANEL (toggle) -->
-      <aside id="leftPanel" class="side" aria-label="Sidebar panel">
-        <div class="inner">
-          <button class="panel-close" type="button" aria-label="Close">✕</button>
-          <h3>Sidebar</h3>
-
-          <button class="navbtn" type="button">Memory <i>›</i></button>
-          <button class="navbtn" type="button">Tasks <i>›</i></button>
-          <button class="navbtn" type="button">Saved <i>›</i></button>
-          <button class="navbtn" type="button">Sessions <i>›</i></button>
-
-          <div class="card">
-            <span>Quick</span>
-            <b>Search</b>
+      <aside id="leftPanel" class="side side-menu" aria-label="Conversations">
+        <div class="menu-inner">
+          <div class="menu-head">
+            <div class="menu-title">Workspace</div>
+            <button class="panel-close" type="button" aria-label="Close menu">✕</button>
           </div>
 
-          <div class="small">
-            Next level
-            <br>• pinned facts
-            <br>• recent memories
-            <br>• tasks list
-            <br>• saved replies
-            <br>
+          <button id="companionBtn" class="menu-companion" type="button" aria-label="Open your Companion thread">
+            <span class="mc-orb" aria-hidden="true"></span>
+            <span class="mc-text"><span class="mc-name">Companion</span><span id="companionSub" class="mc-sub">Your personal thread · always here</span></span>
+            <span class="mc-badge" aria-hidden="true">∞</span>
+          </button>
+
+          <div class="menu-section">
+            <span class="menu-section-title">Projects</span>
+            <span id="projectCount" class="menu-count">0</span>
+          </div>
+
+          <button id="newProjectBtn" class="menu-new" type="button" title="New Project (Ctrl+Shift+O)" aria-expanded="false" aria-controls="projectForm">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            <span>New Project</span>
+          </button>
+
+          <form id="projectForm" class="project-form" hidden autocomplete="off">
+            <label class="pf-label" for="projectName">Project name</label>
+            <input id="projectName" class="pf-input" type="text" maxlength="80" placeholder="e.g. E-commerce Backend" spellcheck="false">
+            <label class="pf-label" for="projectGoal">Goal / stack <span class="pf-opt">optional</span></label>
+            <input id="projectGoal" class="pf-input" type="text" maxlength="400" placeholder="Node, Postgres, Stripe…" spellcheck="false">
+            <div id="projectError" class="pf-error" role="alert" hidden></div>
+            <div class="pf-actions">
+              <button id="projectCreate" class="pf-create" type="submit">Create project</button>
+              <button id="projectCancel" class="pf-cancel" type="button">Cancel</button>
+            </div>
+            <p class="pf-hint">Inside a project SHERZ switches to <b>Work mode</b>: deep problem solving, code and architecture.</p>
+          </form>
+
+          <div class="menu-search">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input id="convSearch" type="text" inputmode="search" placeholder="Search projects…" autocomplete="off" spellcheck="false" aria-label="Search projects">
+            <button id="convSearchClear" type="button" aria-label="Clear search" hidden>✕</button>
+          </div>
+
+          <nav id="convList" class="menu-list" aria-label="Projects"></nav>
+          <div id="menuNotice" class="menu-notice" role="status" aria-live="polite" hidden></div>
+
+          <div class="menu-foot">
+            <section id="menuHub" class="menu-hub" aria-label="Appearance and tools" hidden>
+              <div class="hub-sec">
+                <h4 class="hub-h">Appearance</h4>
+                <div class="hub-label" id="themeLabel">Theme</div>
+                <div class="seg" id="themeSeg" role="radiogroup" aria-labelledby="themeLabel">
+                  <button type="button" class="seg-btn" role="radio" aria-checked="false" data-theme-pref="system">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>System
+                  </button>
+                  <button type="button" class="seg-btn" role="radio" aria-checked="false" data-theme-pref="dark">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>Dark
+                  </button>
+                  <button type="button" class="seg-btn" role="radio" aria-checked="false" data-theme-pref="light">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>Light
+                  </button>
+                </div>
+                <div class="hub-label" id="accentLabel">Accent glow</div>
+                <div class="swatches" id="accentSw" role="radiogroup" aria-labelledby="accentLabel">
+                  <button type="button" class="sw" role="radio" aria-checked="false" data-accent="violet" title="Violet" aria-label="Violet"><i></i><span>Violet</span></button>
+                  <button type="button" class="sw" role="radio" aria-checked="false" data-accent="emerald" title="Emerald" aria-label="Emerald"><i></i><span>Emerald</span></button>
+                  <button type="button" class="sw" role="radio" aria-checked="false" data-accent="blue" title="Neon Blue" aria-label="Neon Blue"><i></i><span>Neon Blue</span></button>
+                  <button type="button" class="sw" role="radio" aria-checked="false" data-accent="auto" title="Auto: violet for Companion, emerald for projects" aria-label="Auto"><i></i><span>Auto</span></button>
+                </div>
+              </div>
+
+              <div class="hub-sec">
+                <h4 class="hub-h">Voice &amp; tools</h4>
+                <div class="hub-list">
+                  <button id="ttsBtn" class="btn" type="button">🔊 Voice</button>
+                  <div class="hub-row">
+                    <button id="mic" class="btn" type="button">🎙 Mic</button>
+                    <button id="micStop" class="btn" type="button" style="display:none">⏹ Stop</button>
+                  </div>
+                  <button id="clear" class="btn" type="button" hidden>🗑 Delete this project</button>
+                </div>
+              </div>
+
+              <div class="hub-sec">
+                <h4 class="hub-h">Knowledge (Facts)</h4>
+                <div id="factsBox" class="hub-list"></div>
+                <h4 class="hub-h">Eslatmalar</h4>
+                <div id="remBox" class="hub-list"></div>
+                <button id="refreshBtn" class="btn" type="button" style="margin-top:8px">↻ Yangilash</button>
+              </div>
+            </section>
+
+            <button id="menuProfileBtn" class="menu-profile" type="button" aria-expanded="false" aria-controls="menuHub" title="Account &amp; appearance">
+              <span id="menuAvatar" class="menu-avatar" aria-hidden="true">S</span>
+              <span class="menu-who">
+                <span id="menuName" class="menu-name">Guest</span>
+                <span id="menuEmail" class="menu-email"></span>
+                <span class="menu-status"><span id="menuStatusDot" class="menu-dot"></span><span id="menuStatusText">Guest session</span></span>
+                <span class="menu-status menu-server" id="menuServer" data-state="checking"><span class="menu-dot srv"></span><span id="menuServerText">Server · checking…</span></span>
+              </span>
+              <svg class="menu-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 15 6-6 6 6"/></svg>
+            </button>
+            <button id="menuLogout" class="menu-logout" type="button" hidden>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/></svg>
+              Log out
+            </button>
+            <button id="menuSignIn" class="menu-signin" type="button" hidden>Sign in with Google to keep your chats</button>
           </div>
         </div>
       </aside>
 
       <!-- CENTER (Sening eski feed aynan shu yerda) -->
       <div class="center-col">
-        <div class="orb-hero" id="orbHero" aria-hidden="false">
-          <div id="orbShell" class="s-idle">
-            <canvas id="orbCanvas"></canvas>
-          </div>
-        </div>
         <main id="log" class="feed"></main>
-      </div>
-
-      <!-- RIGHT BRAIN PANEL (toggle) -->
-      <aside id="brainPanel" class="side" aria-label="Brain panel">
-        <div class="inner">
-          <button class="panel-close" type="button" aria-label="Close">✕</button>
-          <h3>Brain Panel</h3>
-
-          <div class="card"><span>Mood</span><b id="moodVal">—</b></div>
-          <div class="card"><span>Energy</span><b id="energyVal">--</b></div>
-          <div class="card"><span>State</span><b id="stateVal">Neutral</b></div>
-          <div class="card"><span>Proactive</span><b style="color:rgba(74,222,128,.92)">ON</b></div>
-
-          <h3>Quick actions</h3>
-          <button class="navbtn" type="button">Summarize <i>›</i></button>
-          <button class="navbtn" type="button">Save memory <i>›</i></button>
-          <button class="navbtn" type="button">Create task <i>›</i></button>
-
-          <div class="small">
-          </div>
-        </div>
-      </aside>
-    </section>
-
-    <div id="panelBackdrop" class="panel-backdrop"></div>
-
-    <!-- Drawer (kept) -->
-    <aside id="drawer" class="drawer">
-      <div class="inner">
-        <h3>Controls</h3>
-        <div class="list">
-          <button id="toggleDrawer" class="btn" type="button">☰ Panel</button>
-          <button id="ttsBtn" class="btn" type="button">🔊 Voice</button>
-
-          <!-- ✅ Google Auth UI: replaces hardcoded #uid input -->
-          <div class="item" id="authSection">
-            <!-- Shown when NOT logged in -->
-            <div id="guestView">
-              <button id="googleLoginBtn" class="btn" type="button"
-                style="background:linear-gradient(135deg,rgba(66,133,244,0.2),rgba(66,133,244,0.08));border-color:rgba(66,133,244,0.4);color:#8ab4f8;width:100%;gap:8px;display:flex;align-items:center;justify-content:center;">
-                <svg width="16" height="16" viewBox="0 0 48 48" style="flex-shrink:0">
-                  <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.29-8.16 2.29-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
-                </svg>
-                Login with Google
-              </button>
-              <div style="font-size:10px;color:rgba(255,255,255,0.3);text-align:center;margin-top:6px;font-family:monospace;">
-                or auto-using dev session
-              </div>
-            </div>
-            <!-- Shown when logged in -->
-            <div id="userView" style="display:none;">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-                <div id="userAvatar" style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,rgba(0,221,192,0.5),rgba(129,140,248,0.5));flex-shrink:0;"></div>
-                <div style="flex:1;min-width:0;">
-                  <div id="userName" style="font-size:12px;color:rgba(255,255,255,0.9);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">—</div>
-                  <div id="userEmail" style="font-size:10px;color:rgba(255,255,255,0.4);font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">—</div>
-                </div>
-              </div>
-              <button id="logoutBtn" class="btn" type="button"
-                style="width:100%;background:rgba(239,68,68,0.06);border-color:rgba(239,68,68,0.22);color:#fca5a5;">
-                ⏻ Logout
-              </button>
-            </div>
-          </div>
-
-          <div class="item" style="display:flex;gap:8px;align-items:center;">
-            <button id="mic" class="btn" type="button">🎙 Mic</button>
-            <button id="micStop" class="btn" type="button" style="display:none">⏹ Stop</button>
-          </div>
-
-          <button id="clear" class="btn" type="button">🧹 Clear chat</button>
-        </div>
-
-        <h3>Knowledge (Facts)</h3>
-        <div id="factsBox" class="list"></div>
-
-        <h3>Eslatmalar</h3>
-        <div id="remBox" class="list"></div>
-      </div>
-    </aside>
-
+<footer class="dock" id="dock">
 <div class="voice-bar" id="voiceBar">
-  <button id="kbdToggle" class="kbd-toggle" type="button" title="Toggle keyboard" aria-label="Toggle keyboard">⌨️</button>
-  <button id="heroMic" class="hero-mic" type="button" title="Tap to talk" aria-label="Tap to talk">🎙️</button>
   <span class="voice-bar-spacer" aria-hidden="true"></span>
+  <button id="heroMic" class="hero-mic" type="button" title="Tap to talk" aria-label="Tap to talk">🎙️</button>
+  <span class="voice-bar-spacer" id="kbdSlot"><button id="kbdToggle" class="kbd-toggle" type="button" title="Chat bar" aria-label="Toggle chat bar" aria-expanded="false">⌨️</button></span>
 </div>
 
 <div class="composer-shell collapsed" id="composerShell">
@@ -1335,8 +1350,7 @@ html.platform-ios body {
         <div class="input-pill">
             <button id="toggleDrawer2" class="icon-btn" type="button">=</button>
             <textarea id="text" class="ta" placeholder="Ask anything..."></textarea>
-            <button id="mic2" class="icon-btn" type="button">🎤</button>
-            
+
             <input type="file" id="fileInput" style="display: none;" accept="image/*">
             <button id="attachBtn" class="icon-btn" type="button">📎</button>
             
@@ -1355,6 +1369,32 @@ html.platform-ios body {
       </div>
 
       <div id="composerHint" class="composer-hint"></div>
+</footer>
+      </div>
+
+      <!-- RIGHT BRAIN PANEL (toggle) -->
+      <aside id="brainPanel" class="side" aria-label="Brain panel">
+        <div class="inner">
+          <button class="panel-close" type="button" aria-label="Close">✕</button>
+          <h3>Brain</h3>
+
+          <div class="brain-card" role="group" aria-label="Active Model">
+            <div class="bc-label">Active Model</div>
+            <div class="bc-value"><span class="bc-dot" aria-hidden="true"></span><b id="brainModelName">SHERZ BRAIN v1</b></div>
+          </div>
+
+          <div class="brain-card" role="group" aria-label="Thinking Mode">
+            <div class="bc-label">Thinking Mode</div>
+            <div class="bc-value"><b id="brainThinkingMode">Casual Companion &amp; Long-Term Memory</b></div>
+          </div>
+        </div>
+      </aside>
+    </section>
+
+    <div id="panelBackdrop" class="panel-backdrop"></div>
+
+
+
     </div>
 
   <script>
@@ -1380,76 +1420,100 @@ html.platform-ios body {
     window.apiUrl = apiUrl;
     window.CONFIG = CONFIG;
 
-    // ✅ Guest session identity — every visitor gets their own isolated
-    // userId instead of sharing the old hardcoded 'u1'. Persisted in
-    // localStorage so it's stable across reloads on the same browser/device.
-    // If a real authenticated user later exists, the backend already prefers
-    // req.user.id (from a verified JWT) over this value automatically — this
-    // is purely the fallback identity for unauthenticated visitors.
-    function getGuestId(){
-      const KEY = 'sherz_guest_id';
-      try{
-        let id = localStorage.getItem(KEY);
-        if (!id){
-          id = 'guest_' + (window.crypto?.randomUUID
-            ? crypto.randomUUID()
-            : 'xxxxxxxxxxxx4xxxyxxxxxxxxxxxxxxx'.replace(/[xy]/g, c => {
-                const r = Math.random() * 16 | 0;
-                return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-              }));
-          localStorage.setItem(KEY, id);
-        }
-        return id;
-      }catch(e){
-        // localStorage unavailable (private browsing, etc.) — fall back to an
-        // in-memory id that's at least unique for this page session
-        console.warn('[guest-id] localStorage unavailable, using session-only id:', e.message);
-        return 'guest_session_' + Math.random().toString(16).slice(2);
-      }
-    }
-    const GUEST_ID = getGuestId();
-
-    // ✅ Google OAuth redirect capture — routes/auth.js's /google/callback
-    // redirects back here as `/?token=...&name=...` after a successful login.
-    // Must run BEFORE the guest-token fetch below, or a real authenticated
-    // token would immediately get overwritten by a fresh guest one.
+    // ✅ Identity layer — single source of truth (script.js delegates to window.__sherzAuth).
+    //   • real account → JWT kept in localStorage ('sherz_token'): survives reloads and is
+    //                    validated with /api/auth/me. It is NEVER replaced by a guest token.
+    //   • guest        → ephemeral by design: id + JWT live in memory only, so a reload or a
+    //                    closed tab starts a fresh guest.
+    // NOTE: GUEST_ID is the "effective user id" used by every call below. It holds the guest id
+    // until sign-in is confirmed, then the real account id (name kept so call sites stay untouched).
+    const USER_TOKEN_KEY = 'sherz_token';
+    const newGuestId = () => 'guest_' + (window.crypto?.randomUUID
+      ? crypto.randomUUID()
+      : 'xxxxxxxxxxxx4xxxyxxxxxxxxxxxxxxx'.replace(/[xy]/g, c => {
+          const r = Math.random() * 16 | 0;
+          return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+        }));
+    let GUEST_ID = newGuestId();
+    let guestToken = null;
+    let userToken = null;
     let isAuthenticatedUser = false;
-    (function consumeGoogleAuthRedirect(){
-      const params = new URLSearchParams(location.search);
-      const tokenFromRedirect = params.get('token');
-      if (!tokenFromRedirect) return;
+    let authUser = { name: null, email: null };
 
+    function jwtPayload(t){
+      try{
+        const b64 = String(t).split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+        return JSON.parse(atob(b64));
+      }catch(e){ return null; }
+    }
+    // A usable account token: has an id, is not a guest token, and is not (about to be) expired
+    function tokenUsable(t){
+      const p = jwtPayload(t);
+      return !!(p && p.id && !String(p.id).startsWith('guest_') && (!p.exp || p.exp * 1000 > Date.now() + 30000));
+    }
+    function rememberUser(name, email){
+      authUser = { name: name || authUser.name, email: email || authUser.email };
+      try{
+        if (authUser.name)  localStorage.setItem('sherz_user_name', authUser.name);
+        if (authUser.email) localStorage.setItem('sherz_user_email', authUser.email);
+      }catch(e){}
+    }
+    function setUserToken(t){
+      userToken = t;
       isAuthenticatedUser = true;
-      guestToken = tokenFromRedirect; // same variable/localStorage key on
-      try{ localStorage.setItem('sherz_guest_token', tokenFromRedirect); }catch(e){}
+      GUEST_ID = jwtPayload(t).id;
+      try{ localStorage.setItem(USER_TOKEN_KEY, t); }catch(e){}
+    }
+    function clearUserSession(){
+      userToken = null; guestToken = null; isAuthenticatedUser = false;
+      authUser = { name: null, email: null };
+      GUEST_ID = newGuestId();
+      try{
+        ['sherz_token', 'sherz_user_name', 'sherz_user_email', 'sherz_guest_token', 'sherz_guest_id']
+          .forEach(k => localStorage.removeItem(k));
+      }catch(e){}
+    }
 
-      const nameFromRedirect = params.get('name');
-      if (nameFromRedirect){
-        try{ localStorage.setItem('sherz_user_name', nameFromRedirect); }catch(e){}
-      }
-
-      // ✅ Strip the token out of the URL immediately — leaving a JWT
-      // sitting in the address bar risks it lingering in browser history
-      // or leaking via a Referer header if the page links out anywhere.
-      params.delete('token');
-      params.delete('name');
-      const cleanQuery = params.toString();
-      history.replaceState({}, '', location.pathname + (cleanQuery ? '?' + cleanQuery : '') + location.hash);
+    // Restore the session synchronously, BEFORE anything asks for a token.
+    (function restoreSession(){
+      try{
+        // Google OAuth redirect (legacy flow): /?token=...&name=...
+        const params = new URLSearchParams(location.search);
+        const fromRedirect = params.get('token');
+        if (fromRedirect && tokenUsable(fromRedirect)) setUserToken(fromRedirect);
+        if (params.get('name') && isAuthenticatedUser) rememberUser(params.get('name'), null);
+        if (fromRedirect || params.has('auth_error')){
+          // never leave a JWT in the address bar / history / Referer
+          ['token', 'name', 'auth_error'].forEach(k => params.delete(k));
+          const q = params.toString();
+          history.replaceState({}, '', location.pathname + (q ? '?' + q : '') + location.hash);
+        }
+      }catch(e){}
+      try{
+        // Older builds stored a REAL account token under 'sherz_guest_token' and then overwrote it
+        // with a guest token on the next load. Recover it once, then retire the legacy keys.
+        const legacy = localStorage.getItem('sherz_guest_token');
+        if (!isAuthenticatedUser && legacy && tokenUsable(legacy)) setUserToken(legacy);
+        localStorage.removeItem('sherz_guest_token');
+        localStorage.removeItem('sherz_guest_id');   // guests are no longer persisted
+        if (!isAuthenticatedUser){
+          const t = localStorage.getItem(USER_TOKEN_KEY);
+          if (t && tokenUsable(t)) setUserToken(t);
+          else if (t) localStorage.removeItem(USER_TOKEN_KEY);
+        }
+        if (isAuthenticatedUser){
+          authUser = {
+            name:  authUser.name  || localStorage.getItem('sherz_user_name'),
+            email: authUser.email || localStorage.getItem('sherz_user_email'),
+          };
+        }
+      }catch(e){}
     })();
 
-    // ✅ Guest auth — exchanges GUEST_ID for a real JWT so requests pass the
-    // backend's authRequired check in production (see /api/auth/guest).
-    // Cached in localStorage so we don't re-fetch on every reload. Purely a
-    // fallback identity for unauthenticated visitors — a real Google-auth
-    // token (above) always takes precedence and is never overwritten by this.
-    let guestToken = null;
-    if (!isAuthenticatedUser){
-      try{ guestToken = localStorage.getItem('sherz_guest_token'); }catch(e){}
-    }
-
+    // Guest JWT (memory only) — fetched only when there is no account session
     async function fetchGuestToken(){
-      // A real authenticated token should never be replaced by a guest one.
-      if (isAuthenticatedUser && guestToken) return guestToken;
+      if (isAuthenticatedUser) return userToken;
+      if (guestToken) return guestToken;
       try{
         const r = await fetch(apiUrl('/api/auth/guest'), {
           method: 'POST',
@@ -1459,95 +1523,112 @@ html.platform-ios body {
         const data = await r.json().catch(() => ({}));
         if (!r.ok || !data.ok || !data.token) throw new Error(data.error || `HTTP ${r.status}`);
         guestToken = data.token;
-        try{ localStorage.setItem('sherz_guest_token', guestToken); }catch(e){}
         return guestToken;
       }catch(e){
         console.warn('[auth] guest token fetch failed:', e.message);
         return null; // requests proceed unauthenticated; backend falls back to req.body.userId
       }
     }
-    // Kick off immediately on load so a token is likely ready before the
-    // first message send, without blocking anything else from running
-    const guestTokenReady = fetchGuestToken();
+    const currentToken = () => (isAuthenticatedUser ? userToken : guestToken);
 
-    // ✅ Sign out — clears the real token and reverts to guest identity.
-    // Exposed on window so it can be wired to a UI button.
-    window.__signOut = function(){
-      isAuthenticatedUser = false;
-      guestToken = null;
-      try{
-        localStorage.removeItem('sherz_guest_token');
-        localStorage.removeItem('sherz_user_name');
-      }catch(e){}
-      location.reload(); // simplest correct way to fully reset in-memory state
+    // Resolves once identity is settled. A stored account token is validated with /api/auth/me:
+    // only an explicit 401/403 drops it — a network blip must never sign the user out.
+    const authReady = (async () => {
+      if (isAuthenticatedUser){
+        try{
+          const r = await fetch(apiUrl('/api/auth/me'), { headers: { 'Authorization': `Bearer ${userToken}` } });
+          if (r.status === 401 || r.status === 403){
+            clearUserSession();
+          } else {
+            const data = await r.json().catch(() => ({}));
+            if (r.ok && data.ok && data.user){
+              if (data.user.id) GUEST_ID = data.user.id;
+              rememberUser(data.user.name, data.user.email);
+            }
+          }
+        }catch(e){
+          console.warn('[auth] /api/auth/me unreachable — keeping stored session:', e.message);
+        }
+      }
+      if (!isAuthenticatedUser) await fetchGuestToken();
+    })();
+    const guestTokenReady = authReady; // old name, kept for any remaining call site
+
+    window.__sherzAuth = {
+      getToken: currentToken,
+      getUserId: () => GUEST_ID,
+      isAuthenticated: () => isAuthenticatedUser,
+      ready: authReady,
     };
 
-    // ✅ Sign in with Google — full-page redirect into the OAuth flow.
+    // ✅ Sign out — forget the account and start a fresh guest.
+    window.__signOut = function(){
+      clearUserSession();
+      location.reload();
+    };
+
+    // ✅ Sign in with Google — redirect flow (current backend). The page navigates away, so an
+    // in-memory guest session cannot be merged with this flow.
     window.__signInWithGoogle = function(){
       location.href = apiUrl('/api/auth/google');
     };
 
-    // ✅ Wire the pre-built auth UI shell (#guestView / #userView) and fetch
-    // the full profile via /api/auth/me — the OAuth redirect only carries
-    // token+name, not email, so this is the only way to populate userEmail.
-    async function updateAuthUI(){
+    // ✅ Sign in with Google — ID-token flow (POST /api/auth/google). Wire this to the Google
+    // Identity Services callback. The page stays alive, so the current guest session's chat and
+    // facts are merged into the account server-side.
+    window.__signInWithGoogleCredential = async function(credential){
+      await authReady;
+      const r = await fetch(apiUrl('/api/auth/google'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(guestToken ? { 'Authorization': `Bearer ${guestToken}` } : {}) },
+        body: JSON.stringify({ credential })
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      setUserToken(data.token);
+      rememberUser(data.user?.name, data.user?.email);
+      location.reload(); // history (now including the merged guest chat) is reloaded from the server
+    };
+
+    // ✅ Account pill in the drawer
+    function updateAuthUI(){
+      renderProfile();
       const guestView = $('guestView');
       const userView  = $('userView');
       if (!guestView || !userView) return;
-
-      if (!isAuthenticatedUser){
-        guestView.style.display = '';
-        userView.style.display  = 'none';
-        return;
-      }
-
-      guestView.style.display = 'none';
-      userView.style.display  = '';
-
-      let cachedName = null;
-      try{ cachedName = localStorage.getItem('sherz_user_name'); }catch(e){}
-      if (cachedName && $('userName')) $('userName').textContent = cachedName;
-
-      try{
-        const token = await guestTokenReady;
-        const r = await fetch(apiUrl('/api/auth/me'), {
-          headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-        });
-        const data = await r.json().catch(() => ({}));
-        if (r.ok && data.ok && data.user){
-          if ($('userName'))  $('userName').textContent  = data.user.name  || cachedName || 'User';
-          if ($('userEmail')) $('userEmail').textContent = data.user.email || '';
-        }
-      }catch(e){
-        console.warn('[auth] /api/auth/me fetch failed (non-fatal):', e.message);
+      guestView.style.display = isAuthenticatedUser ? 'none' : '';
+      userView.style.display  = isAuthenticatedUser ? '' : 'none';
+      if (isAuthenticatedUser){
+        if ($('userName'))  $('userName').textContent  = authUser.name  || 'User';
+        if ($('userEmail')) $('userEmail').textContent = authUser.email || '';
       }
     }
-    updateAuthUI();
+    authReady.then(updateAuthUI);
 
     $('googleLoginBtn')?.addEventListener('click', () => window.__signInWithGoogle());
     $('logoutBtn')?.addEventListener('click', () => window.__signOut());
 
-    // ✅ Every authenticated request should go through this instead of a bare
-    // fetch() — attaches Authorization: Bearer <token> automatically, and if
-    // a cached token turns out to be stale/expired (401), clears it and
-    // retries once with a freshly-issued one before giving up.
+    // ✅ Every authenticated request goes through this: waits for identity, attaches the right
+    // Bearer token, and on 401 resets the session (a rejected account token → fresh guest).
     async function fetchWithAuth(url, opts = {}){
-      if (!guestToken) await guestTokenReady; // first call on the page waits for the initial fetch
-      const withAuth = (extraHeaders) => ({
-        ...opts,
-        headers: {
-          ...(opts.headers || {}),
-          ...(guestToken ? { 'Authorization': `Bearer ${guestToken}` } : {}),
-          ...(extraHeaders || {}),
-        },
-      });
-
-      let r = await fetch(url, withAuth());
-      if (r.status === 401 && guestToken){
+      await authReady;
+      const send = () => {
+        const t = currentToken();
+        return fetch(url, {
+          ...opts,
+          headers: { ...(opts.headers || {}), ...(t ? { 'Authorization': `Bearer ${t}` } : {}) },
+        });
+      };
+      let r = await send();
+      if (r.status === 401){
+        if (isAuthenticatedUser){
+          clearUserSession();
+          location.reload();
+          return r;
+        }
         guestToken = null;
-        try{ localStorage.removeItem('sherz_guest_token'); }catch(e){}
         await fetchGuestToken();
-        r = await fetch(url, withAuth());
+        r = await send();
       }
       return r;
     }
@@ -1633,14 +1714,18 @@ html.platform-ios body {
           // mobile/tablet: panels become full-screen slide-in overlays
           left?.classList.toggle('open', leftOpen);
           brain?.classList.toggle('open', brainOpen);
-          if (brainLabel) brainLabel.textContent = brainOpen ? 'Brain ◂' : 'Brain ▸';
+          btnLeft?.setAttribute('aria-expanded', leftOpen ? 'true' : 'false');
+          if (brainLabel) brainLabel.textContent = brainOpen ? '◂' : '▸';
+          btnBrain?.setAttribute('aria-expanded', brainOpen ? 'true' : 'false');
           if (leftOpen && brainOpen){ brainOpen = false; brain?.classList.remove('open'); }
           backdrop?.classList.toggle('open', leftOpen || brainOpen);
           return;
         }
         if (left) left.classList.toggle('open', leftOpen);
         if (brain) brain.classList.toggle('open', brainOpen);
-        if (brainLabel) brainLabel.textContent = brainOpen ? 'Brain ◂' : 'Brain ▸';
+        btnLeft?.setAttribute('aria-expanded', leftOpen ? 'true' : 'false');
+        if (brainLabel) brainLabel.textContent = brainOpen ? '◂' : '▸';
+        btnBrain?.setAttribute('aria-expanded', brainOpen ? 'true' : 'false');
         backdrop?.classList.remove('open');
       }
 
@@ -1649,6 +1734,7 @@ html.platform-ios body {
         brainOpen = false;
         apply();
       }
+      window.__closeSidePanels = closeAll;
 
       btnLeft?.addEventListener('click', () => {
         leftOpen = !leftOpen;
@@ -1733,7 +1819,7 @@ html.platform-ios body {
 
       idleTimer = setTimeout(() => {
         const ta = $('text');
-        if (ta && !ta.value.trim()){
+        if (ta && !ta.value.trim() && !isWorkMode()){
           setStatus('idle');
           setIdleSoft(true);
 
@@ -1759,14 +1845,30 @@ html.platform-ios body {
     // =========================
     const esc = (s)=>String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
 
+    // Code is lifted out FIRST (fenced blocks, even half-streamed ones, and `inline`), so bold/italic/newline
+    // rules can never touch it and it is escaped exactly once.
     function renderLiteMd(t){
       if(!t) return '';
-      return esc(t)
-        .replace(/```([\s\S]*?)```/g,(m,p)=>`<pre><code>${esc(p)}</code></pre>`)
-        .replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>')
-        .replace(/\*([^*]+)\*/g,'<i>$1</i>')
-        .replace(/\n/g,'<br>');
+      const stash = [];
+      const put = (html, mark)=>{ stash.push(html); return mark + (stash.length - 1) + mark; };
+      let src = String(t)
+        .replace(/```([\w+#.-]*)[^\S\n]*\n?([\s\S]*?)(?:```|$)/g,(m,lang,code)=>
+          put('<div class="codeblock"><div class="cb-head"><span class="cb-lang">'+esc(lang||'code')+'</span><button class="cb-copy" type="button">Copy</button></div><pre><code>'+esc(code.replace(/\n$/,''))+'</code></pre></div>', '\u0001'))
+        .replace(/`([^`\n]+)`/g,(m,code)=>put('<code>'+esc(code)+'</code>', '\u0000'));
+      return esc(src)
+        .replace(/\*\*([^*\n]+)\*\*/g,'<b>$1</b>')
+        .replace(/\*([^*\n]+)\*/g,'<i>$1</i>')
+        .replace(/\n?(\u0001\d+\u0001)\n?/g,'$1')                   // a block already is its own line: swallow the line breaks around it
+        .replace(/\n/g,'<br>')
+        .replace(/[\u0000\u0001](\d+)[\u0000\u0001]/g,(m,i)=>stash[+i]);   // restore code last: its own newlines must stay
     }
+    // "Copy" on code blocks (delegated: works for streamed, typed-out and history bubbles alike)
+    document.addEventListener('click',(e)=>{
+      const b = e.target.closest && e.target.closest('.cb-copy'); if(!b) return;
+      const code = b.closest('.codeblock')?.querySelector('code'); if(!code) return;
+      const done = ()=>{ b.textContent = 'Copied'; setTimeout(()=>{ b.textContent = 'Copy'; }, 1400); };
+      try{ navigator.clipboard.writeText(code.textContent).then(done, done); }catch(err){ done(); }
+    });
     function fmtTime(d=new Date()){
       return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
     }
@@ -1948,10 +2050,64 @@ html.platform-ios body {
     // =========================
     // Bubbles
     // =========================
-    function addUser(text){
+    // ---- Image attachments (multimodal) -------------------------------------------------
+    const IMG_MARK_RE = /^\u{1F4F7} \[image\]\s*/u;          // what the server stores in history for a picture turn
+    const IMG_MARK = '\u{1F4F7}';
+    // Shrink big photos before upload (max 1600px JPEG) — phones send 5-12 MB originals.
+    function fileToDataUrl(file){
+      return new Promise((ok, no)=>{ const r = new FileReader(); r.onload = ()=>ok(String(r.result)); r.onerror = ()=>no(r.error); r.readAsDataURL(file); });
+    }
+    async function prepareImage(file){
+      try{
+        if (!file || !/^image\/(png|jpe?g|webp)$/i.test(file.type)) return file;
+        const url = await fileToDataUrl(file);                     // data: URL — blob: images can be blocked by CSP
+        const img = await new Promise((ok, no)=>{ const i = new Image(); i.onload = ()=>ok(i); i.onerror = no; i.src = url; });
+        const MAX = 1600, w = img.naturalWidth, h = img.naturalHeight;
+        if (!w || !h || (Math.max(w,h) <= MAX && file.size <= 1.5*1024*1024)) return file;
+        const k = Math.min(1, MAX / Math.max(w,h));
+        const c = document.createElement('canvas'); c.width = Math.round(w*k); c.height = Math.round(h*k);
+        const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0,0,c.width,c.height); g.drawImage(img,0,0,c.width,c.height);
+        const blob = await new Promise(r=>c.toBlob(r,'image/jpeg',0.86));
+        if (!blob || blob.size >= file.size) return file;
+        return new File([blob], (file.name||'photo').replace(/\.\w+$/,'') + '.jpg', { type:'image/jpeg' });
+      }catch(_){ return file; }
+    }
+    // One place builds the request: multipart when a picture is attached, JSON otherwise.
+    function buildChatRequest(q, file){
+      const base = { message: q, userId: GUEST_ID, conversationId: currentConvId || 'new' };
+      if (file){
+        const fd = new FormData();                               // NB: no manual Content-Type — the browser adds the boundary
+        fd.append('image', file, file.name || 'photo.jpg');
+        Object.keys(base).forEach(k=>fd.append(k, String(base[k])));
+        return { headers:{}, body: fd };
+      }
+      return { headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ...base, ui:{ tone:'normal', lang:'uz' } }) };
+    }
+    // Reads text + attachment from the composer, shows the bubble, sends once.
+    async function submitComposer(){
+      const att = window.__sherzAttachment;
+      const file = att && att.get ? att.get() : null;
+      const ta = $('text');
+      const msg = ta.value.trim();
+      if (!msg && !file) return;
+      const thumb = file ? await fileToDataUrl(file).catch(()=>null) : null;   // data: URL so the bubble thumbnail can't be CSP-blocked
+      setOrbChatActive(true);                                    // user's own message — shrink the orb
+      addUser(msg, thumb);
+      if (msg) setMoodUI(detectMood(msg));
+      const sent = ta.value;
+      sendToServer(msg, 'text', { file, onAccepted: ()=>{
+        if (file && att && att.get && att.get() === file) att.clear();   // clear the preview only once the server took it
+        if (ta.value === sent) ta.value = '';
+      }});
+      if (!file) ta.value = '';                                  // text-only: clear instantly as before
+    }
+
+    function addUser(text, imgUrl){
       const wrap = document.createElement('div');
       wrap.className = 'bubble me';
-      wrap.innerHTML = `${renderLiteMd(text||'')}<span class="time">${fmtTime()}</span>`;
+      wrap._raw = String(text || '');
+      const img = imgUrl ? `<img class="msg-img" src="${imgUrl}" alt="Rasm">` : '';
+      wrap.innerHTML = `${img}${text ? renderLiteMd(text) : ''}<span class="time">${fmtTime()}</span>`;
       feed.appendChild(wrap);
       feed.scrollTop = feed.scrollHeight;
     }
@@ -1960,6 +2116,7 @@ html.platform-ios body {
     async function addAiTypewriter(text, opts = {}){
       const wrap = document.createElement('div');
       wrap.className = 'bubble ai stable';  // ✅ FIX: stable
+      wrap._raw = String(text || '');
 
       const content = document.createElement('div');
       wrap.appendChild(content);
@@ -2033,6 +2190,7 @@ html.platform-ios body {
     // ✅ Intro (ODAMIY) + ✅ Chips (TABIIY)
     // =========================
     async function runIntroIfEmpty(){
+      const introConv = currentConvId;
       const hasBubble = Array.from(feed.children).some(el => el.classList && el.classList.contains('bubble'));
       if (hasBubble) return;
 
@@ -2071,6 +2229,7 @@ html.platform-ios body {
       showTyping();
       await sleep(420 + Math.floor(Math.random()*260));
       hideTyping();
+      if (introConv !== currentConvId){ setStatus('idle'); return; }   // user switched conversations meanwhile
 
       await addAiTypewriter(introText, { suggestions });
 
@@ -2102,7 +2261,9 @@ html.platform-ios body {
       return analyser;
     }
 
+    let activeVS = null;   // the voice-synced reply currently being read aloud, if any
     function stopTTS(){
+      if (activeVS){ const v = activeVS; activeVS = null; v.cancel(); }
       ttsGen++; // any in-flight fetch or pending onended from the old audio is now stale
       if (ttsAudio){
         try{
@@ -2198,39 +2359,220 @@ html.platform-ios body {
       }
     }
 
+
+    // =========================================================================
+    // ✅ VOICE SYNC — in voice mode the reply is spoken sentence-by-sentence AS it streams in, and each
+    // sentence's text is revealed in step with its own audio (like a voice assistant), instead of
+    // "print the whole reply, then start the audio".
+    //   stream chunk → sentence splitter → /api/tts per sentence (prefetched) → play in order,
+    //   revealing that sentence's text word-by-word against audio.currentTime.
+    // Barge-in / orb tap / Esc → stopTTS() → cancel(): audio stops, the rest of the text is shown at once.
+    // If TTS is off or a sentence's audio fails, its text is simply shown immediately (never lost).
+    // =========================================================================
+    const VS_MIN_CHARS = 28, VS_MAX_CHARS = 200;
+    const stripPhaseLabels = (t) => t.replace(/^[ \t]*(LISTEN|CAUSE|ANALYZE|HELP|COMFORT)[ \t]*:[ \t]*/gim, '');
+
+    // Pull complete sentences off the front of `buf`. Returns [segments, rest]. `force` flushes everything.
+    function splitSpeakable(buf, force){
+      const segs = [];
+      let start = 0, i = 0;
+      while (i < buf.length){
+        const ch = buf[i];
+        let cut = -1;
+        if (ch === '\n'){ cut = i + 1; }
+        else if (/[.!?…]/.test(ch)){
+          let j = i + 1;
+          while (j < buf.length && /[.!?…"'”’)\]]/.test(buf[j])) j++;
+          if (j < buf.length && /\s/.test(buf[j])) cut = j;           // boundary only when followed by whitespace ("3.5" stays whole)
+          else if (j >= buf.length && force) cut = j;
+          i = Math.max(i, j - 1);
+        }
+        if (cut !== -1){
+          const len = cut - start;
+          if (len >= VS_MIN_CHARS || force){ segs.push(buf.slice(start, cut)); start = cut; }
+        }
+        i++;
+      }
+      let rest = buf.slice(start);
+      // very long run without punctuation → cut at the last comma/space so audio can start
+      while (rest.length > VS_MAX_CHARS){
+        let k = rest.lastIndexOf(',', VS_MAX_CHARS); if (k < 60) k = rest.lastIndexOf(' ', VS_MAX_CHARS); if (k < 40) k = VS_MAX_CHARS;
+        segs.push(rest.slice(0, k + 1)); rest = rest.slice(k + 1);
+      }
+      if (force && rest.trim()){ segs.push(rest); rest = ''; }
+      return [segs, rest];
+    }
+
+    function createVoiceSync({ contentEl, wrap }){
+      stopTTS();                                  // interrupt anything still playing / pending
+      if (window.stopListening) window.stopListening();   // the mic must not hear SHERZ's own voice
+      const myGen = ttsGen;
+      const V = {};
+      const segs = [];                            // { text, p (blob promise), fetched }
+      let pending = '', fed = '', shown = '', idx = 0;
+      let finished = false, cancelled = false, finalText = null, wake = null, cancelHook = null, ended = false;
+      const ttsOn = () => (typeof ttsEnabled === 'undefined') ? true : !!ttsEnabled;
+
+      const paint = (txt) => {
+        const html = renderLiteMd(txt.replace(/\s+$/,''));
+        if (contentEl.innerHTML !== html) contentEl.innerHTML = html;
+        feed.scrollTop = feed.scrollHeight;
+      };
+      const waitMore = () => new Promise(res => { wake = res; });
+      const poke = () => { if (wake){ const w = wake; wake = null; w(); } };
+
+      const enqueue = (list) => { for (const t of list){ const tx = stripPhaseLabels(t); if (tx.trim()) segs.push({ text: tx, fetched: false }); } poke(); };
+      const ensureFetch = (seg) => {
+        if (!seg || seg.fetched) return;
+        seg.fetched = true;
+        if (!ttsOn()){ seg.p = Promise.resolve(null); return; }
+        seg.p = fetchWithAuth(apiUrl('/api/tts'), {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: seg.text.trim() })
+        }).then(r => r.ok ? r.blob() : Promise.reject(new Error('TTS HTTP ' + r.status)))
+          .then(b => (b && b.size) ? b : null)
+          .catch(e => { console.warn('[voice-sync] TTS failed for a sentence — showing its text only:', e.message); return null; });
+      };
+
+      V.feed = (delta) => {
+        if (cancelled || !delta) return;
+        fed += delta; pending += delta;
+        const [out, rest] = splitSpeakable(pending, false);
+        pending = rest;
+        if (out.length) enqueue(out);
+      };
+      V.finish = (final) => {
+        if (cancelled) return;
+        finalText = final;
+        // The tone engine can append/trim text after generation: speak whatever the final adds beyond what streamed.
+        if (typeof final === 'string' && final.length){
+          if (final.startsWith(fed)) pending += final.slice(fed.length);
+          else { let c = 0; while (c < fed.length && c < final.length && fed[c] === final[c]) c++; pending += final.slice(Math.max(c, fed.length)); }
+        }
+        const [out] = splitSpeakable(pending, true);
+        pending = ''; finished = true;
+        enqueue(out);
+      };
+      V.cancel = () => {
+        if (cancelled) return;
+        cancelled = true;
+        if (cancelHook) cancelHook();
+        // barge-in: the reader keeps the COMPLETE message, just without the rest of the audio
+        const all = (typeof finalText === 'string' && finalText) ? stripPhaseLabels(finalText) : stripPhaseLabels(fed);
+        paint(all);
+        poke();
+        window.__orbAnalyser = null;
+        $('heroMic')?.classList.remove('speaking');
+      };
+
+      const revealDuring = (seg, audio, base) => new Promise(resolve => {
+        let done = false, timer = null;
+        const total = seg.text.length;
+        const fallbackCps = 15;                                            // chars/sec if duration is unknown
+        const t0 = performance.now();
+        const upto = () => {
+          const d = audio.duration;
+          const frac = (isFinite(d) && d > 0) ? audio.currentTime / d : (performance.now() - t0) / 1000 * fallbackCps / total;
+          let n = Math.min(total, Math.ceil(total * Math.min(1, frac * 1.03 + 0.01)));
+          while (n < total && !/\s/.test(seg.text[n - 1] || ' ') && !/\s/.test(seg.text[n])) n++;   // snap to a word end
+          return n;
+        };
+        const end = () => { if (done) return; done = true; clearInterval(timer); cancelHook = null; paint(base + seg.text); resolve(); };
+        cancelHook = end;
+        audio.onended = end;
+        audio.onerror = () => { console.warn('[voice-sync] audio error — continuing'); end(); };
+        timer = setInterval(() => { paint(base + seg.text.slice(0, upto())); }, 45);
+        audio.play().then(() => {
+          if (window.__orbSetState) window.__orbSetState('speaking');
+          setStatus('speaking');
+          $('heroMic')?.classList.add('speaking');
+        }).catch(e => { console.warn('[voice-sync] play() blocked:', e.message); end(); });
+      });
+
+      V.run = async () => {
+        try{
+          while (!cancelled && myGen === ttsGen){
+            const seg = segs[idx];
+            if (!seg){ if (finished) break; await waitMore(); continue; }
+            ensureFetch(seg); ensureFetch(segs[idx + 1]);
+            const blob = await seg.p;
+            if (cancelled || myGen !== ttsGen) break;
+            if (!blob){ shown += seg.text; paint(shown); idx++; continue; }      // text-only fallback for this sentence
+            const url = URL.createObjectURL(blob);
+            const audio = new Audio(url);
+            ttsAudio = audio;
+            try{ window.__orbAnalyser = getTTSAnalyser(audio); }catch(e){ /* orb falls back to its plain speaking pulse */ }
+            await revealDuring(seg, audio, shown);
+            URL.revokeObjectURL(url);
+            shown += seg.text; idx++;
+          }
+        }catch(e){
+          console.warn('[voice-sync] error:', e.message);
+          if (!cancelled) paint(stripPhaseLabels(finalText || fed));
+        }finally{
+          if (activeVS === V) activeVS = null;
+          if (!cancelled && myGen === ttsGen){
+            // finished normally → exactly the same hand-off as the classic player
+            ttsAudio = null; window.__orbAnalyser = null;
+            $('heroMic')?.classList.remove('speaking');
+            if (typeof finalText === 'string' && finalText) paint(finalText);    // authoritative final render, once
+            if (lastTurnSource === 'voice' && window.startListening) window.startListening();
+            else { setStatus('idle'); if (window.__orbSetState) window.__orbSetState('idle'); }
+          }
+        }
+      };
+
+      activeVS = V;
+      V.promise = V.run();
+      return V;
+    }
+
     // =========================
     // ✅ Send pipeline (server)
     // =========================
-    async function sendToServer(text, source){
+    async function sendToServer(text, source, opts){
+      opts = opts || {};
       const q = (text||'').trim();
-      if (!q) return;
+      if (!q && !opts.file) return;
       lastTurnSource = (source === 'voice') ? 'voice' : 'text';
+      let wd = null, timedOut = false, streamWrap = null;      // watchdog: never leave the dots spinning forever
 
       try{
         setStatus('thinking');
         showTyping();
 
+        abortActiveTurn();
+        const turnAbort = new AbortController();
+        activeTurnAbort = turnAbort;
+        const armWatchdog = () => { clearTimeout(wd); wd = setTimeout(()=>{ timedOut = true; try{ turnAbort.abort(); }catch(_){} }, 45000); };
+        armWatchdog();
+        if (opts.file && !opts.prepared) opts.prepared = await prepareImage(opts.file);
+        const req = buildChatRequest(q, opts.prepared || null);
         const r = await fetchWithAuth(apiUrl('/api/chat-stream'), {
           method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({
-            message: q,
-            userId: (GUEST_ID),
-            ui: { tone:'normal', lang:'uz' }
-          })
+          headers: req.headers,
+          signal: turnAbort.signal,
+          body: req.body
         });
 
+        if (!r.ok && opts.file && [400,413,415].includes(r.status)){
+          // The server rejected the picture itself — retrying elsewhere would only repeat that.
+          let why = ''; try{ why = (await r.json()).error || ''; }catch(_){}
+          hideTyping(); setStatus('idle');
+          return addError(why || (r.status === 413 ? 'Rasm juda katta.' : 'Rasm qabul qilinmadi.'));
+        }
         if (!r.ok || !r.body){
           // Stream endpoint unavailable — fall back to the old blocking path
           // rather than failing the whole turn.
           console.warn('[chat-stream] unavailable, falling back to /api/chat:', r.status);
-          return await sendToServerFallback(q);
+          return await sendToServerFallback(q, opts);
         }
 
         // ✅ Live SSE consumption — the AI bubble is created up front and
         // grows as real tokens arrive, instead of waiting for one full response.
         hideTyping();
         setStatus('responding');
+        if (opts.onAccepted) opts.onAccepted();
 
         const wrap = document.createElement('div');
         wrap.className = 'bubble ai stable';
@@ -2241,6 +2583,7 @@ html.platform-ios body {
         time.textContent = fmtTime();
         wrap.appendChild(time);
         feed.appendChild(wrap);
+        streamWrap = wrap;
         feed.scrollTop = feed.scrollHeight;
 
         let liveText = '';
@@ -2249,13 +2592,25 @@ html.platform-ios body {
         const reader = r.body.getReader();
         const decoder = new TextDecoder();
 
-        const applyLive = () => {
-          contentEl.innerHTML = esc(liveText).replace(/\n/g, '<br>');
-          feed.scrollTop = feed.scrollHeight;
+        // ✅ ONE render path. Plain replies are shown live (same renderer as the final text, so nothing
+        // is cleared or re-typed at the end). Replies using explicit LISTEN:/HELP: labels are held behind
+        // typing dots and drawn once as phase blocks when complete.
+        contentEl.innerHTML = '<span class="dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>';
+        const voiceMode = (lastTurnSource === 'voice');
+        const vs = voiceMode ? createVoiceSync({ contentEl, wrap }) : null;
+        let lastHtml = '', rafId = 0;
+        const looksPhased = () => voiceMode || /^\s*(LISTEN|CAUSE|ANALYZE|HELP|COMFORT)\s*:/i.test(liveText);
+        const paint = () => {
+          rafId = 0;
+          if (looksPhased()) return;
+          const html = renderLiteMd(liveText);
+          if (html !== lastHtml){ contentEl.innerHTML = html; lastHtml = html; feed.scrollTop = feed.scrollHeight; }
         };
+        const applyLive = () => { if (!rafId) rafId = requestAnimationFrame(paint); };
 
         while (true){
           const { value, done } = await reader.read();
+          armWatchdog();                                   // server pings every 15 s, so 45 s of silence = stuck
           if (done) break;
           sseBuffer += decoder.decode(value, { stream: true });
 
@@ -2277,9 +2632,10 @@ html.platform-ios body {
 
             if (eventType === 'chunk'){
               liveText += payload.delta || '';
-              applyLive();
+              if (vs) vs.feed(payload.delta || ''); else applyLive();
             } else if (eventType === 'done'){
               finalText = payload.text ?? liveText;
+              adoptConversation(payload.conversationId);
             } else if (eventType === 'error'){
               throw new Error(payload.error || 'stream error');
             }
@@ -2288,9 +2644,16 @@ html.platform-ios body {
         }
 
         const said = (finalText != null ? finalText : liveText).trim();
+        wrap._raw = said;                   // lets "Copy" / "Delete" work on this streamed bubble
         if (!said){
+          if (vs) vs.cancel();
           wrap.remove();
           setStatus('idle');
+          return;
+        }
+        if (vs){
+          // voice turn: text + audio are already being played together; just hand over the authoritative final text
+          vs.finish(said);
           return;
         }
 
@@ -2298,7 +2661,8 @@ html.platform-ios body {
         // differ slightly from what streamed live (e.g. a trailing question
         // appended, or a premature comfort phrase trimmed), since that
         // post-processing only runs once generation is complete.
-        const phases = parsePhases(said) || inferPhasesFromPlainText(said);
+        if (rafId){ cancelAnimationFrame(rafId); rafId = 0; }
+        const phases = parsePhases(said);   // only explicit labels; plain text is never re-typed
         if (phases){
           wrap.removeChild(contentEl);
           const pack = renderPhaseBlocks(phases);
@@ -2308,7 +2672,8 @@ html.platform-ios body {
           const phaseWrap = document.getElementById(pack.wid);
           enqueuePhases(phaseWrap, pack.items);
         } else {
-          contentEl.innerHTML = renderLiteMd(said);
+          const html = renderLiteMd(said);
+          if (html !== lastHtml) contentEl.innerHTML = html;   // identical → no repaint at all
         }
         feed.scrollTop = feed.scrollHeight;
 
@@ -2324,8 +2689,13 @@ html.platform-ios body {
 
       }catch(e){
         hideTyping(); setStatus('idle');
+        if (e && e.name === 'AbortError'){
+          if (timedOut){ if (streamWrap) streamWrap.remove(); addError('Server javob bermadi (45 soniya). Terminaldagi xatoni tekshiring va qayta urinib ko‘ring.'); }
+          return;                                      // otherwise the user switched chats / started a new one — not an error
+        }
         addError(`Tarmoq xatosi: ${e.message}`);
       } finally {
+        clearTimeout(wd);
         markActivity();
       }
     }
@@ -2333,15 +2703,13 @@ html.platform-ios body {
     // ✅ Fallback path — only used if /api/chat-stream itself can't be
     // reached (e.g. proxy/infra doesn't support SSE). Same blocking
     // request+typewriter behavior the app used before streaming existed.
-    async function sendToServerFallback(q){
+    async function sendToServerFallback(q, opts){
+      opts = opts || {};
+      const req = buildChatRequest(q, opts.prepared || opts.file || null);
       const r = await fetchWithAuth(apiUrl('/api/chat'), {
         method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({
-          message: q,
-          userId: (GUEST_ID),
-          ui: { tone:'normal', lang:'uz' }
-        })
+        headers: req.headers,
+        body: req.body
       });
 
       const ct = r.headers.get('content-type') || '';
@@ -2356,6 +2724,8 @@ html.platform-ios body {
       }
 
       const data = await r.json();
+      if (opts.onAccepted) opts.onAccepted();
+      adoptConversation(data.conversationId);
       setStatus('responding');
       hideTyping();
 
@@ -2378,19 +2748,7 @@ html.platform-ios body {
       markActivity();
       if (ev.key==='Enter' && !ev.shiftKey){
         ev.preventDefault();
-        const val = $('text').value;
-        if (val.trim()){
-         const msg = val.trim();
-         setOrbChatActive(true); // user's own typed message — this is what should shrink the orb
-         addUser(msg);
-
-    // ✅ Mood/State update (user textdan)
-       const m = detectMood(msg);
-       setMoodUI(m);
-
-      sendToServer(msg);
-      $('text').value = '';
-      }
+        submitComposer();
       }
     });
 
@@ -2406,31 +2764,15 @@ html.platform-ios body {
 
     $('send').addEventListener('click', ()=>{
       markActivity();
-      const val = $('text').value.trim();
-      if (!val) return;
-      setOrbChatActive(true); // user's own typed message — this is what should shrink the orb
-      addUser(val);
-      const m = detectMood(val);
-      setMoodUI(m);
-      sendToServer(val);
-      $('text').value = '';
+      submitComposer();
     });
 
     // Drawer open/close
-    $('openSettings').onclick = ()=> $('drawer').classList.toggle('open');
-    $('toggleDrawer').onclick = ()=> $('drawer').classList.toggle('open');
-    $('toggleDrawer2').onclick = ()=> $('drawer').classList.toggle('open');
+    // The composer "=" button opens the Menu hub (account · appearance · tools)
+    $('toggleDrawer2').onclick = ()=> window.__openMenuHub && window.__openMenuHub();
 
     // Clear
-    $('clear').addEventListener('click', ()=>{
-      feed.innerHTML = '';
-      $('text').value = '';
-      localStorage.removeItem('sherz_chat');
-      hideComposerHint();
-      setIdleSoft(false);
-      setOrbChatActive(false);
-      runIntroIfEmpty();
-    });
+    $('clear').addEventListener('click', ()=> deleteCurrentProject());
 
     // Refresh
     $('refreshBtn').onclick = ()=>{ refreshFacts(); refreshReminders(); };
@@ -2441,16 +2783,16 @@ html.platform-ios body {
         const r = await fetchWithAuth(apiUrl(`/api/facts/${encodeURIComponent(uid)}?only=user`));
         const data = await r.json();
         $('factsBox').innerHTML = (data.facts||[])
-          .map(f=>`<div class="item">• <b>${esc(f.key)}</b>: ${esc(f.value)}</div>`).join('') || '<i style="color:rgba(255,255,255,0.55)">Hali yo‘q</i>';
-      }catch{ $('factsBox').innerHTML = '<i style="color:rgba(255,255,255,0.55)">Yuklashda xato</i>'; }
+          .map(f=>`<div class="item">• <b>${esc(f.key)}</b>: ${esc(f.value)}</div>`).join('') || '<i style="color:var(--muted)">Hali yo‘q</i>';
+      }catch{ $('factsBox').innerHTML = '<i style="color:var(--muted)">Yuklashda xato</i>'; }
     }
     async function refreshReminders(){
       try{
         const r = await fetchWithAuth(apiUrl('/api/reminders'));
         const data = await r.json();
         $('remBox').innerHTML = (data.reminders||[])
-          .map(x=>`<div class="item">• <b>${esc(x.title)}</b> — ${esc(new Date(x.dueAt).toLocaleString())}</div>`).join('') || '<i style="color:rgba(255,255,255,0.55)">Eslatma yo‘q</i>';
-      }catch{ $('remBox').innerHTML = '<i style="color:rgba(255,255,255,0.55)">Yuklashda xato</i>'; }
+          .map(x=>`<div class="item">• <b>${esc(x.title)}</b> — ${esc(new Date(x.dueAt).toLocaleString())}</div>`).join('') || '<i style="color:var(--muted)">Eslatma yo‘q</i>';
+      }catch{ $('remBox').innerHTML = '<i style="color:var(--muted)">Yuklashda xato</i>'; }
     }
 
     // Mic: map mic2 → same click
@@ -2481,10 +2823,18 @@ html.platform-ios body {
     const kbdToggleBtn = $('kbdToggle');
     const composerShellEl = $('composerShell');
     if (kbdToggleBtn && composerShellEl){
+      const kbdSlot = $('kbdSlot'), sendBtnEl = $('send');
+      const placeKbd = (open)=>{
+        // open → sits right next to Send inside the input bar; closed → back beside the mic
+        if (open && sendBtnEl) sendBtnEl.parentNode.insertBefore(kbdToggleBtn, sendBtnEl);
+        else if (kbdSlot) kbdSlot.appendChild(kbdToggleBtn);
+        kbdToggleBtn.classList.toggle('active', open);
+        kbdToggleBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      };
       kbdToggleBtn.addEventListener('click', ()=>{
         const opening = composerShellEl.classList.contains('collapsed');
-        composerShellEl.classList.toggle('collapsed');
-        kbdToggleBtn.classList.toggle('active', opening);
+        composerShellEl.classList.toggle('collapsed', !opening);
+        placeKbd(opening);
         if (opening) $('text')?.focus();
       });
     }
@@ -2519,8 +2869,15 @@ html.platform-ios body {
   let mediaStream = null;
   let mediaRecorder = null;
   let chunks = [];
+  let sess = null;            // per-recording state: { discard, speechMs, timers, vad… } — never shared between recordings
+  let sttAbort = null;        // AbortController of the in-flight /api/stt upload
   micBtn.disabled = false;
   const showStop = (b)=> stopBtn.style.display = b ? 'inline-flex' : 'none';
+
+  // ── limits that guarantee the mic can never stay hot in the background ──
+  const NO_SPEECH_MS = 12000;   // nobody spoke at all → drop the recording, go idle (no upload, no reply)
+  const MAX_RECORD_MS = 90000;  // hard cap on a single recording
+  const MIN_SPEECH_MS = 240;    // less voiced audio than this counts as silence/noise
 
   function releaseStream(){
     if (mediaStream){
@@ -2528,6 +2885,40 @@ html.platform-ios body {
       mediaStream = null;
     }
   }
+
+  // ── voice-activity detector: tells real speech apart from silence / room noise ──
+  let vadCtx = null;
+  function startVAD(stream, S){
+    S.speechMs = 0; S.noise = 0.008; S.t = 0;
+    try{
+      vadCtx = vadCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (vadCtx.state === 'suspended') vadCtx.resume();
+      S.src = vadCtx.createMediaStreamSource(stream);
+      S.an = vadCtx.createAnalyser(); S.an.fftSize = 1024;
+      S.src.connect(S.an);                       // analysis only — never connected to the speakers
+      const buf = new Float32Array(S.an.fftSize);
+      S.vadTimer = setInterval(()=>{
+        S.an.getFloatTimeDomainData(buf);
+        let sum = 0; for (let i = 0; i < buf.length; i++) sum += buf[i]*buf[i];
+        const rms = Math.sqrt(sum / buf.length);
+        S.t += 80;
+        if (S.t <= 400) S.noise = Math.max(S.noise, Math.min(rms, 0.05));   // first 0.4s = room noise floor
+        else if (rms > Math.max(0.02, S.noise * 3)) S.speechMs += 80;
+      }, 80);
+    }catch(e){
+      console.warn('[mic] VAD unavailable, falling back to server-side filtering only:', e.message);
+      S.noVad = true;
+    }
+  }
+  function stopVAD(S){
+    if (!S) return;
+    if (S.vadTimer){ clearInterval(S.vadTimer); S.vadTimer = null; }
+    try{ S.src && S.src.disconnect(); }catch(e){}
+    S.src = null; S.an = null;
+    if (S.noSpeechTimer){ clearTimeout(S.noSpeechTimer); S.noSpeechTimer = null; }
+    if (S.capTimer){ clearTimeout(S.capTimer); S.capTimer = null; }
+  }
+  const hadSpeech = (S) => !S || S.noVad || S.speechMs >= MIN_SPEECH_MS;
 
   async function beginListening(manual){
     if (listening || transcribing) return; // already active — no-op, avoids double-start
@@ -2544,6 +2935,8 @@ html.platform-ios body {
     // the instant they tap, even before getUserMedia actually resolves
     setStatus('listening');
     heroMicEl?.classList.add('listening');
+    const S = { discard:false, manual:!!manual, speechMs:0 };
+    sess = S;
 
     try{
       mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -2556,12 +2949,14 @@ html.platform-ios body {
         showComposerHint('Mikrofon ruxsati berilmagan. Brauzer manzil satridagi 🔒 belgisidan saytga mikrofon ruxsatini tekshiring.');
       } else {
         console.warn('[mic] getUserMedia failed:', e.message);
-        if (manual) addError('Mikrofonga ulanib bo\u2018lmadi: ' + e.message);
+        if (manual) addError('Mikrofonga ulanib bo‘lmadi: ' + e.message);
       }
       return;
     }
+    // cancelled (orb tap / Esc / tab hidden) while the permission prompt or device was opening
+    if (sess !== S || S.discard){ releaseStream(); heroMicEl?.classList.remove('listening'); return; }
 
-    chunks = [];
+    chunks = []; S.chunks = chunks;
     // ✅ iOS Safari fix: Safari does not support the webm container at all —
     // MediaRecorder.isTypeSupported('audio/webm...') is always false there,
     // so the old code fell through to "no explicit mimeType", which is the
@@ -2594,10 +2989,14 @@ html.platform-ios body {
     }
 
     mediaRecorder.ondataavailable = (ev)=>{ if (ev.data && ev.data.size > 0) chunks.push(ev.data); };
-    mediaRecorder.onstop = onRecordingStopped;
+    const rec = mediaRecorder;
+    mediaRecorder.onstop = () => onRecordingStopped(S, rec);
     mediaRecorder.start();
     listening = true;
     showStop(true);
+    startVAD(mediaStream, S);
+    S.noSpeechTimer = setTimeout(()=>{ if (sess === S && listening && !hadSpeech(S)) discardRecording('no-speech'); }, NO_SPEECH_MS);
+    S.capTimer = setTimeout(()=>{ if (sess === S && listening) endListening(); }, MAX_RECORD_MS);
   }
 
   function endListening(){
@@ -2608,24 +3007,53 @@ html.platform-ios body {
     heroMicEl?.classList.remove('listening');
   }
 
-  // ✅ Hard reset — forcibly tears down any lingering recorder/stream before
-  // starting fresh, so an interrupted prior session can never leave a manual
-  // tap doing nothing.
-  function hardStart(){
+  // Stop recording and THROW THE AUDIO AWAY (nothing is uploaded, no reply is triggered).
+  function discardRecording(reason){
+    const S = sess;
+    if (S) S.discard = true;
     try{ if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop(); }catch(e){}
+    stopVAD(S);
     releaseStream();
     listening = false;
     showStop(false);
+    heroMicEl?.classList.remove('listening');
+    if (reason === 'no-speech'){
+      setStatus('idle');
+      showComposerHint('Ovoz eshitilmadi. Gapirish uchun mikrofonni bosing.');
+    }
+  }
+
+  // ✅ One reset that returns EVERYTHING to a clean idle: recorder, mic stream, VAD,
+  // timers, in-flight transcription, TTS playback, orb + status. Safe to call any time.
+  function voiceReset(){
+    discardRecording();
+    try{ if (sttAbort) sttAbort.abort(); }catch(e){}
+    sttAbort = null;
+    transcribing = false;
+    if (window.__ttsStop) window.__ttsStop();
+    heroMicEl?.classList.remove('listening','speaking');
+    setStatus('idle');
+    if (window.__orbSetState) window.__orbSetState('idle');
+  }
+  window.__voiceReset = voiceReset;
+
+  // ✅ Hard reset — forcibly tears down any lingering recorder/stream before
+  // starting fresh, so an interrupted prior session can never leave a manual
+  // tap doing nothing. (The old recording is DISCARDED, not uploaded.)
+  function hardStart(){
+    discardRecording();
     setTimeout(()=> beginListening(true), 60);
   }
 
   // ✅ Public toggle for the visible controls (hero mic, orb)
+  //   idle → start listening · listening → stop & send · transcribing → cancel
   function toggleListening(){
     markActivity();
     // Native haptic feedback so the tap feels instantly acknowledged, even
     // before getUserMedia/the recorder actually confirms anything
     if (navigator.vibrate){ try{ navigator.vibrate(40); }catch(e){} }
     if (listening) endListening();
+    else if (transcribing){ voiceReset(); }
     else hardStart();
   }
   window.__micToggle = toggleListening;
@@ -2637,26 +3065,45 @@ html.platform-ios body {
     endListening();
   });
 
+  // never leave the microphone open behind a hidden tab / closed page, and Esc = cancel everything
+  document.addEventListener('visibilitychange', ()=>{ if (document.hidden && (listening || transcribing)) voiceReset(); });
+  window.addEventListener('pagehide', ()=>{ discardRecording(); });
+  window.addEventListener('keydown', (e)=>{ if (e.key === 'Escape' && (listening || transcribing)) voiceReset(); });
+
+  // Whisper invents YouTube-style captions for silence/noise — never let those reach the chat
+  const NOISE_RX = /(subscribe|thanks? for watching|thank you for watching|like and subscribe|see you (in the )?next|amara\.org|subtitles? by|^\s*you\s*[.!]?\s*$|^[\s.…,!?\-♪♫]*$|^\s*[\[(]\s*(music|applause|silence|noise)\s*[\])]\s*$)/i;
+  const isNoiseTranscript = (t) => !t || NOISE_RX.test(t);
+
   // Fires once mediaRecorder.stop() finishes flushing its final chunk —
   // sends the finished blob to the existing /api/stt (Whisper) endpoint
-  async function onRecordingStopped(){
-    releaseStream();
-    const blob = new Blob(chunks, { type: (mediaRecorder && mediaRecorder.mimeType) || 'audio/mp4' });
-    chunks = [];
+  async function onRecordingStopped(S, rec){
+    stopVAD(S);
+    if (sess === S) releaseStream();
+    const myChunks = (S && S.chunks) || [];
+    const blob = new Blob(myChunks, { type: (rec && rec.mimeType) || 'audio/mp4' });
+    if (S) S.chunks = [];
+    if (sess === S) chunks = [];
+
+    // thrown away on purpose (cancel / restart / no speech) → nothing is uploaded
+    if (S && S.discard){ if (!transcribing) setStatus('idle'); return; }
     if (!blob.size){ setStatus('idle'); return; }
+    // recorded, but the voice-activity detector heard only silence / background noise → don't even ask Whisper
+    if (!hadSpeech(S)){
+      setStatus('idle');
+      if (S && S.manual) showComposerHint('Ovoz eshitilmadi — yana urinib ko‘ring.');
+      return;
+    }
 
     transcribing = true;
     setStatus('transcribing');
+    const abort = new AbortController();
+    sttAbort = abort;
 
     const buildForm = () => {
       const fd = new FormData();
       const ext = (blob.type.split('/')[1] || 'mp4').split(';')[0];
       fd.append('file', blob, `voice.${ext}`);
-      // ✅ FIX: removed fd.append('lang', 'uz') — was forcing Whisper to
-      // assume Uzbek for every recording regardless of what was actually
-      // spoken, causing garbage transcriptions for English/other languages.
-      // Let the backend Whisper call auto-detect (omit `language` in the
-      // OpenAI request, or pass language: undefined).
+      // No `lang`: the server lets Whisper auto-detect (it rejects 'uz').
       return fd;
     };
 
@@ -2666,9 +3113,9 @@ html.platform-ios body {
     // without the user having to notice or re-tap anything.
     async function uploadWithRetry(attempt = 1){
       try{
-        return await fetchWithAuth(apiUrl('/api/stt'), { method: 'POST', body: buildForm() });
+        return await fetchWithAuth(apiUrl('/api/stt'), { method: 'POST', body: buildForm(), signal: abort.signal });
       }catch(e){
-        if (attempt >= 2) throw e;
+        if (e.name === 'AbortError' || attempt >= 2) throw e;
         console.warn(`[stt] upload attempt ${attempt} failed (${e.message}), retrying once...`);
         await new Promise(res => setTimeout(res, 400));
         return uploadWithRetry(attempt + 1);
@@ -2678,24 +3125,26 @@ html.platform-ios body {
     try{
       const r = await uploadWithRetry();
       const data = await r.json().catch(() => ({}));
-      transcribing = false;
+      if (abort.signal.aborted) return;           // user cancelled while we waited
+      transcribing = false; sttAbort = null;
 
       if (!r.ok || !data.ok){
         setStatus('idle');
-        addError('Ovozni matnga aylantirib bo\u2018lmadi: ' + (data.error || `HTTP ${r.status}`));
+        addError('Ovozni matnga aylantirib bo‘lmadi: ' + (data.error || `HTTP ${r.status}`));
         return;
       }
 
       const text = (data.text || '').trim();
       markActivity();
-      if (!text){ setStatus('idle'); return; }
+      if (isNoiseTranscript(text)){ setStatus('idle'); return; }   // empty / hallucinated caption → stay silent
 
       addUser(text);
       setMoodUI(detectMood(text));
       sendToServer(text, 'voice');
       $('text').value = '';
     }catch(e){
-      transcribing = false;
+      if (e.name === 'AbortError'){ return; }     // cancelled on purpose — voiceReset already cleaned up
+      transcribing = false; sttAbort = null;
       setStatus('idle');
       addError('Ovozni yuborishda xato: ' + e.message);
     }
@@ -2981,12 +3430,891 @@ function hideProactiveReturnToast(){
       uidInput.addEventListener('blur', () => connectSSE(uidInput.value));
     }
 
+
+    // =========================
+    // ✅ Endless thread (server history, cursor-paginated)
+    // =========================
+    const HISTORY_PAGE = 25;
+    let historyCursor = null, historyHasMore = false, historyLoading = false;
+    let currentConvId = null;      // null = a brand-new chat that has no messages yet
+    let convSupported = true;      // false → server has no /api/conversations yet: behave like the old single thread
+
+    function histBubble(role, text, ts, id){
+      const wrap = document.createElement('div');
+      wrap.className = role === 'ai' ? 'bubble ai hist' : 'bubble me';
+      if (id) wrap.dataset.mid = id;          // server message id → needed to delete it
+      let body = String(text || ''), chip = '';
+      if (IMG_MARK_RE.test(body)){ body = body.replace(IMG_MARK_RE,''); chip = '<div class="msg-img-chip">\u{1F4F7} Rasm</div>'; }
+      wrap._raw = body;
+      wrap.innerHTML = `${chip}${body ? renderLiteMd(body) : ''}<span class="time">${fmtTime(new Date(ts || Date.now()))}</span>`;
+      return wrap;
+    }
+
+    // initial=true → newest page, jump to bottom. Otherwise prepend the next older page and
+    // keep the reader on the same message.
+    async function loadHistoryPage(initial){
+      if (historyLoading || (!initial && !historyHasMore)) return false;
+      if (convSupported && !currentConvId) return false;        // new chat: nothing to load
+      historyLoading = true;
+      const myConv = currentConvId;
+      try{
+        const qs = new URLSearchParams({ limit: String(HISTORY_PAGE), userId: String(GUEST_ID || '') });
+        if (convSupported && currentConvId) qs.set('conversationId', currentConvId);
+        if (!initial && historyCursor) qs.set('before', historyCursor);
+        const r = await fetchWithAuth(apiUrl('/api/chat/history?' + qs.toString()));
+        if (!r.ok) return false;
+        const d = await r.json().catch(() => null);
+        if (!d || !d.ok || !Array.isArray(d.messages)) return false;
+        if (myConv !== currentConvId) return false;              // user switched chats while this was loading
+
+        historyHasMore = !!d.hasMore;
+        historyCursor  = d.nextCursor || null;
+        if (!d.messages.length) return false;
+
+        const prevH = feed.scrollHeight, prevTop = feed.scrollTop;
+        const frag = document.createDocumentFragment();
+        for (const m of d.messages) frag.appendChild(histBubble(m.role, m.text, m.ts, m.id));
+        feed.insertBefore(frag, feed.firstChild);
+        const target = initial ? feed.scrollHeight : feed.scrollHeight - prevH + prevTop;
+        feed.style.scrollBehavior = 'auto';
+        feed.scrollTop = target;
+        lastTop = feed.scrollTop;
+        return true;
+      }catch(e){
+        console.warn('[history] load failed (non-fatal):', e.message);
+        return false;
+      }finally{
+        historyLoading = false;
+      }
+    }
+    let lastTop = 0;
+    feed.addEventListener('scroll', () => {
+      const goingUp = feed.scrollTop < lastTop;
+      lastTop = feed.scrollTop;
+      if (goingUp && feed.scrollTop < 160 && historyHasMore && !historyLoading) loadHistoryPage(false);
+      jumpBtn.classList.toggle('show', feed.scrollHeight - feed.scrollTop - feed.clientHeight > 240);
+    }, { passive: true });
+
+
+    // =========================================================================
+    // ✅ MENU — ONE Companion thread (default) + Projects (Work mode)
+    //   Companion: your continuous personal thread. Can't be renamed or deleted.
+    //   Project:   a focused workspace you create by name; the server switches SHERZ to Work/Engineering mode there.
+    // =========================================================================
+    let convs = [];                 // [companion, ...projects] from GET /api/conversations
+    let searchHits = null;          // null = not searching; array = server-side search results
+    let convSearchTerm = '';
+    let renamingId = null, confirmDeleteId = null;
+    let activeTurnAbort = null;
+    let refreshTimer = null, searchSeq = 0;
+    const drafts = new Map();       // unsent text per conversation, restored when you come back
+    const convKey = () => 'sherz_conv_' + (GUEST_ID || '');
+    const qUser = () => 'userId=' + encodeURIComponent(GUEST_ID || '');
+
+    const companionConv = () => convs.find(c => c.kind === 'companion') || null;
+    const projectList = () => convs.filter(c => c.kind === 'project');
+    const currentConv = () => convs.find(c => c.id === currentConvId) || null;
+    const currentProject = () => { const c = currentConv(); return c && c.kind === 'project' ? c : null; };
+    function isWorkMode(){ return !!currentProject(); }
+    const sortConvs = () => convs.sort((a, b) => ((b.kind === 'companion') - (a.kind === 'companion')) || (b.updatedAt - a.updatedAt));
+
+    function abortActiveTurn(){
+      if (activeTurnAbort){ try{ activeTurnAbort.abort(); }catch(e){} activeTurnAbort = null; }
+    }
+    // a conversation switch must silence everything still running for the old one
+    function quiesceTurn(){
+      abortActiveTurn();
+      try{ if (window.__voiceReset) window.__voiceReset(); else if (window.__ttsStop) window.__ttsStop(); }catch(e){}
+      hideTyping();
+    }
+
+    let noticeTimer = null;
+    function menuNotice(text, ms = 3500){
+      const el = $('menuNotice'); if (!el) return;
+      el.textContent = text; el.hidden = !text;
+      clearTimeout(noticeTimer);
+      if (text) noticeTimer = setTimeout(() => { el.hidden = true; }, ms);
+    }
+
+    async function convFetch(path, opts){
+      return fetchWithAuth(apiUrl(path + (path.includes('?') ? '&' : '?') + qUser()), opts);
+    }
+
+    async function refreshConversations(){
+      try{
+        const r = await convFetch('/api/conversations');
+        if (r.status === 404){ convSupported = false; convs = []; currentConvId = null; applyMode(); renderConvList(); return false; }
+        const d = await r.json().catch(() => null);
+        if (!r.ok || !d || !d.ok) throw new Error('HTTP ' + r.status);
+        convs = d.conversations || [];
+        if (!companionConv()){                      // an older server without the Companion/Projects model
+          convSupported = false; convs = []; currentConvId = null; applyMode(); renderConvList(); return false;
+        }
+        convSupported = true;
+        sortConvs();
+        if (currentConvId && !currentConv()) currentConvId = companionConv().id;     // the open conversation vanished
+        renderConvList(); applyMode();
+        return true;
+      }catch(e){
+        console.warn('[menu] could not load conversations:', e.message);
+        menuNotice('Couldn’t load your workspace. Check the connection.');
+        return false;
+      }
+    }
+    const refreshConversationsSoon = () => { clearTimeout(refreshTimer); refreshTimer = setTimeout(refreshConversations, 350); };
+
+    async function initConversations(){
+      await refreshConversations();
+      if (!convSupported){ currentConvId = null; return; }
+      let saved = null;
+      try{ saved = localStorage.getItem(convKey()); }catch(e){}
+      currentConvId = (saved && convs.some(c => c.id === saved)) ? saved : companionConv().id;
+      applyMode(); renderConvList();
+    }
+
+    // the server tells us which conversation a turn landed in
+    function adoptConversation(id){
+      if (!id || !convSupported) return;
+      if (id !== currentConvId){
+        currentConvId = id;
+        try{ localStorage.setItem(convKey(), id); }catch(e){}
+        applyMode();
+      }
+      refreshConversationsSoon();
+    }
+
+    function closeMenuOnMobile(){
+      if (!window.matchMedia('(min-width:1101px)').matches) window.__closeSidePanels && window.__closeSidePanels();
+    }
+    function openMenu(){ if (!$('leftPanel').classList.contains('open')) $('btnLeftPanel')?.click(); }
+
+    // ── mode: Companion (personal) vs Work (inside a project) ──
+    let lastWork = null;
+    function applyMode(){
+      const p = currentProject(), work = !!p;
+      document.body.classList.toggle('mode-work', work);
+      const badge = $('modeBadge');
+      if (badge){
+        badge.hidden = !convSupported;
+        badge.classList.toggle('work', work);
+        $('modeBadgeText').textContent = work ? 'Work · ' + p.title : 'Companion';
+        badge.title = work ? 'Work mode — project “' + p.title + '”' : 'Companion — your personal thread';
+      }
+      const ta = $('text');
+      if (work){
+        if (phTimer){ clearInterval(phTimer); phTimer = null; }
+        if (ta) ta.placeholder = 'Describe the task or paste code…';
+      } else if (lastWork === true){
+        startPlaceholderRotation();
+      }
+      if ($('clear')) $('clear').hidden = !work;
+      if ($('brainModelName')) $('brainModelName').textContent = work ? 'SHERZ ENGINE v1' : 'SHERZ BRAIN v1';
+      if ($('brainThinkingMode')) $('brainThinkingMode').textContent = work ? 'Surgical Code & Architecture Mode' : 'Casual Companion & Long-Term Memory';
+      lastWork = work;
+    }
+    // typing is the primary input for engineering work
+    function openChatBar(focus){
+      const shell = $('composerShell');
+      if (shell && shell.classList.contains('collapsed')) $('kbdToggle')?.click();
+      else if (focus) $('text')?.focus();
+    }
+
+    const PROJECT_CHIPS = [
+      { label: 'Plan the architecture', text: 'Let’s plan the architecture for this project. Ask me what you need to know, then propose a structure with trade-offs.' },
+      { label: 'Debug an error',        text: 'I need help debugging an error. Here is the relevant code and the full error message:\n\n' },
+      { label: 'Review my code',        text: 'Please review this code for bugs, security and performance, and suggest concrete fixes:\n\n' },
+      { label: 'Refactor',              text: 'Refactor this code without changing its behavior. Explain what you change and why:\n\n' },
+      { label: 'Next steps',            text: 'Based on what we have done so far, what should the next steps be?' }
+    ];
+    function renderProjectIntro(p){
+      if (!p || feed.querySelector('.project-intro')) return;
+      if (Array.from(feed.children).some(el => el.classList && el.classList.contains('bubble'))) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'bubble ai stable project-intro';
+      wrap.innerHTML =
+        '<div class="pi-kicker"><span class="pi-ico">&lt;/&gt;</span> Work mode</div>' +
+        '<div class="pi-title">' + esc(p.title) + '</div>' +
+        (p.description ? '<div class="pi-goal">' + esc(p.description) + '</div>' : '') +
+        '<p class="pi-text">This is a focused workspace. SHERZ works like a senior engineering partner here: deep problem solving, complete code, refactoring and architecture. This project keeps its own context, separate from your personal thread.</p>';
+      const sug = document.createElement('div'); sug.className = 'suggest';
+      for (const c of PROJECT_CHIPS){
+        const ch = document.createElement('div'); ch.className = 'chip'; ch.textContent = c.label;
+        ch.addEventListener('click', () => { openChatBar(false); const ta = $('text'); ta.value = c.text; ta.focus(); markActivity(); });
+        sug.appendChild(ch);
+      }
+      wrap.appendChild(sug);
+      feed.appendChild(wrap);
+    }
+    function introForCurrent(){
+      const p = currentProject();
+      if (p) renderProjectIntro(p); else runIntroIfEmpty();
+    }
+
+    async function openConversation(id, opts = {}){
+      if (!id || !convSupported || !convs.some(c => c.id === id)) return;
+      if (id === currentConvId){ closeMenuOnMobile(); return; }
+      quiesceTurn();
+      if (window.__msgSel) window.__msgSel.exit();
+      const ta = $('text');
+      if (ta){ drafts.set(currentConvId, ta.value); ta.value = drafts.get(id) || ''; }
+      feed.innerHTML = '';
+      historyCursor = null; historyHasMore = false; historyLoading = false;
+      currentConvId = id;
+      try{ localStorage.setItem(convKey(), id); }catch(e){}
+      renamingId = null; confirmDeleteId = null;
+      hideComposerHint(); setIdleSoft(false); setStatus('idle');
+      applyMode(); renderConvList(); closeMenuOnMobile();
+      const work = isWorkMode();
+      if (work && opts.userAction !== false) openChatBar(window.matchMedia('(hover:hover)').matches);
+      const ok = await loadHistoryPage(true);
+      if (currentConvId !== id) return;
+      if (ok) setOrbChatActive(true);
+      else { setOrbChatActive(false); introForCurrent(); }
+    }
+
+    // ── relative time ──
+    function relTime(ts){
+      const m = Math.floor((Date.now() - ts) / 60000);
+      if (m < 1) return 'now';
+      if (m < 60) return m + 'm';
+      const h = Math.floor(m / 60); if (h < 24) return h + 'h';
+      const d = Math.floor(h / 24); if (d < 7) return d + 'd';
+      if (d < 60) return Math.floor(d / 7) + 'w';
+      return new Date(ts).toLocaleDateString('en', { month: 'short', day: 'numeric' });
+    }
+
+    const ICON_EDIT = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
+    const ICON_TRASH = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>';
+    function mkBtn(cls, label, html){
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = cls; b.setAttribute('aria-label', label); b.title = label; b.innerHTML = html;
+      return b;
+    }
+
+    function convItem(c){
+      const row = document.createElement('div');
+      row.className = 'conv-item' + (c.id === currentConvId ? ' active' : '');
+      row.dataset.id = c.id; row.setAttribute('role', 'listitem');
+
+      if (confirmDeleteId === c.id){
+        row.classList.add('confirming');
+        const msg = document.createElement('span'); msg.className = 'conv-confirm-msg'; msg.textContent = 'Delete this project?';
+        const yes = document.createElement('button'); yes.type = 'button'; yes.className = 'conv-yes'; yes.textContent = 'Delete';
+        const no = document.createElement('button'); no.type = 'button'; no.className = 'conv-no'; no.textContent = 'Cancel';
+        yes.addEventListener('click', () => deleteConversationUI(c.id));
+        no.addEventListener('click', () => { confirmDeleteId = null; renderConvList(); });
+        row.append(msg, yes, no);
+        return row;
+      }
+      if (renamingId === c.id){
+        const input = document.createElement('input');
+        input.className = 'conv-edit'; input.type = 'text'; input.maxLength = 80; input.value = c.title; input.setAttribute('aria-label', 'Project name');
+        let done = false;
+        const commit = (save) => { if (done) return; done = true; renamingId = null; if (save) renameConversationUI(c.id, input.value); else renderConvList(); };
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter'){ e.preventDefault(); commit(true); } else if (e.key === 'Escape'){ e.stopPropagation(); commit(false); } });
+        input.addEventListener('blur', () => commit(true));
+        row.appendChild(input);
+        setTimeout(() => { input.focus(); input.select(); }, 0);
+        return row;
+      }
+
+      const main = document.createElement('button');
+      main.type = 'button'; main.className = 'conv-main'; main.title = c.title + (c.description ? ' — ' + c.description : '');
+      if (c.id === currentConvId) main.setAttribute('aria-current', 'true');
+      const ico = document.createElement('span'); ico.className = 'conv-ico'; ico.setAttribute('aria-hidden', 'true'); ico.textContent = '</>';
+      const text = document.createElement('span'); text.className = 'conv-text';
+      const t = document.createElement('span'); t.className = 'conv-title'; t.textContent = c.title || 'Project';
+      text.appendChild(t);
+      if (c.description){ const sub = document.createElement('span'); sub.className = 'conv-sub'; sub.textContent = c.description; text.appendChild(sub); }
+      const time = document.createElement('span'); time.className = 'conv-time'; time.textContent = relTime(c.updatedAt);
+      main.append(ico, text, time);
+      main.addEventListener('click', () => openConversation(c.id));
+      main.addEventListener('dblclick', () => { renamingId = c.id; renderConvList(); });
+
+      const acts = document.createElement('div'); acts.className = 'conv-actions';
+      const ed = mkBtn('conv-act', 'Rename project', ICON_EDIT);
+      const del = mkBtn('conv-act danger', 'Delete project', ICON_TRASH);
+      ed.addEventListener('click', (e) => { e.stopPropagation(); confirmDeleteId = null; renamingId = c.id; renderConvList(); });
+      del.addEventListener('click', (e) => { e.stopPropagation(); renamingId = null; confirmDeleteId = c.id; renderConvList(); });
+      acts.append(ed, del);
+      row.append(main, acts);
+      return row;
+    }
+
+    function renderCompanion(){
+      const b = $('companionBtn'); if (!b) return;
+      const c = companionConv();
+      const active = !convSupported || (!!c && c.id === currentConvId);
+      b.classList.toggle('active', active);
+      b.setAttribute('aria-current', active ? 'true' : 'false');
+      const match = !!convSearchTerm && !!searchHits && searchHits.some(h => h.kind === 'companion');
+      b.classList.toggle('has-match', match);
+      if ($('companionSub')) $('companionSub').textContent = match ? 'Match in your thread' : 'Your personal thread · always here';
+    }
+
+    function renderConvList(){
+      renderCompanion();
+      const box = $('convList'); if (!box) return;
+      const keepScroll = box.scrollTop;
+      box.textContent = '';
+      const all = projectList();
+      if ($('projectCount')) $('projectCount').textContent = String(all.length);
+      if ($('newProjectBtn')){ $('newProjectBtn').disabled = !convSupported; $('newProjectBtn').title = convSupported ? 'New Project (Ctrl+Shift+O)' : 'Update the server to enable Projects'; }
+      const searching = !!convSearchTerm;
+      let list = all;
+      if (searching){
+        const term = convSearchTerm.toLowerCase();
+        const local = all.filter(c => (c.title || '').toLowerCase().includes(term) || (c.description || '').toLowerCase().includes(term));
+        // server hits also cover message text; show them as soon as they arrive, local matches until then
+        list = searchHits ? searchHits.filter(c => c.kind === 'project') : local;
+      }
+      if (!convSupported){
+        box.appendChild(emptyState('Projects need a server update', 'Until then SHERZ keeps everything in one thread.'));
+      } else if (!list.length){
+        if (searching) box.appendChild(emptyState('No projects found', 'Nothing matches “' + convSearchTerm + '”.'));
+        else {
+          const d = emptyState('No projects yet', 'A project is a focused workspace for code, architecture or strategy. SHERZ switches to Work mode inside it.');
+          const go = document.createElement('button'); go.type = 'button'; go.className = 'conv-empty-cta'; go.textContent = 'Create your first project';
+          go.addEventListener('click', () => showProjectForm(true));
+          d.appendChild(go); box.appendChild(d);
+        }
+      } else {
+        for (const c of list) box.appendChild(convItem(c));
+      }
+      box.scrollTop = keepScroll;
+    }
+    function emptyState(title, sub){
+      const d = document.createElement('div'); d.className = 'conv-empty';
+      const a = document.createElement('b'); a.textContent = title;
+      const b = document.createElement('span'); b.textContent = sub;
+      d.append(a, b); return d;
+    }
+
+    // ── new project ──
+    function showProjectForm(show){
+      const f = $('projectForm'), btn = $('newProjectBtn'); if (!f || !btn || btn.disabled) return;
+      if (show) openMenu();
+      f.hidden = !show;
+      btn.setAttribute('aria-expanded', show ? 'true' : 'false');
+      btn.classList.toggle('open', !!show);
+      $('projectError').hidden = true;
+      if (show){ $('projectName').value = ''; $('projectGoal').value = ''; setTimeout(() => $('projectName').focus(), 40); }
+    }
+    function projectError(msg){ const e = $('projectError'); e.textContent = msg; e.hidden = !msg; }
+    let creatingProject = false;
+    async function submitProject(ev){
+      ev.preventDefault();
+      if (creatingProject) return;
+      const title = $('projectName').value.replace(/\s+/g, ' ').trim();
+      const description = $('projectGoal').value.replace(/\s+/g, ' ').trim();
+      if (!title){ projectError('Give your project a name.'); $('projectName').focus(); return; }
+      creatingProject = true; projectError('');
+      const btn = $('projectCreate'); btn.disabled = true; btn.textContent = 'Creating…';
+      try{
+        const r = await convFetch('/api/conversations', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, description, userId: GUEST_ID })
+        });
+        const d = await r.json().catch(() => null);
+        if (!r.ok || !d || !d.ok || !d.conversation) throw new Error((d && d.error) || ('HTTP ' + r.status));
+        convs.push(d.conversation); sortConvs();
+        showProjectForm(false);
+        $('convSearch').value = ''; convSearchTerm = ''; searchHits = null; $('convSearchClear').hidden = true;
+        renderConvList();
+        await openConversation(d.conversation.id);                        // → Work mode
+      }catch(e){
+        projectError('Couldn’t create the project. ' + (/^HTTP|failed/i.test(e.message) ? 'Try again.' : e.message));
+      }finally{
+        creatingProject = false; btn.disabled = false; btn.textContent = 'Create project';
+      }
+    }
+    $('projectForm')?.addEventListener('submit', submitProject);
+    $('projectCancel')?.addEventListener('click', () => showProjectForm(false));
+    $('projectForm')?.addEventListener('keydown', (e) => { if (e.key === 'Escape'){ e.stopPropagation(); showProjectForm(false); $('newProjectBtn')?.focus(); } });
+    $('newProjectBtn')?.addEventListener('click', () => showProjectForm($('projectForm').hidden));
+    $('companionBtn')?.addEventListener('click', () => { const c = companionConv(); if (c) openConversation(c.id); else closeMenuOnMobile(); });
+
+    async function renameConversationUI(id, raw){
+      const title = String(raw || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+      const c = convs.find(x => x.id === id);
+      if (!c || c.kind !== 'project' || !title || title === c.title){ renderConvList(); return; }
+      const old = c.title; c.title = title; renderConvList(); applyMode();               // optimistic
+      try{
+        const r = await convFetch('/api/conversations/' + encodeURIComponent(id), {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, userId: GUEST_ID })
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+      }catch(e){
+        c.title = old; renderConvList(); applyMode(); menuNotice('Couldn’t rename the project.');
+      }
+    }
+
+    async function deleteConversationUI(id){
+      const idx = convs.findIndex(x => x.id === id);
+      if (idx < 0 || convs[idx].kind !== 'project') return;
+      const removed = convs[idx];
+      confirmDeleteId = null;
+      convs.splice(idx, 1);
+      if (searchHits) searchHits = searchHits.filter(x => x.id !== id);
+      const wasOpen = (id === currentConvId);
+      renderConvList();
+      try{
+        const r = await convFetch('/api/conversations/' + encodeURIComponent(id), {
+          method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: GUEST_ID })
+        });
+        if (!r.ok && r.status !== 404) throw new Error('HTTP ' + r.status);
+        drafts.delete(id);
+        if (wasOpen){ const c = companionConv(); if (c) await openConversation(c.id, { userAction: false }); }
+        menuNotice('Project deleted.');
+      }catch(e){
+        convs.splice(idx, 0, removed); sortConvs(); renderConvList(); menuNotice('Couldn’t delete the project.');
+      }
+    }
+    // drawer "Delete this project": ask inline in the sidebar, where the confirmation lives
+    function deleteCurrentProject(){
+      const p = currentProject(); if (!p) return;
+      openMenu();
+      renamingId = null; confirmDeleteId = p.id; renderConvList();
+      $('convList').querySelector('.conv-item.confirming')?.scrollIntoView({ block: 'nearest' });
+    }
+
+    // ── search: instant local filter + server search over names, goals and message text ──
+    let searchTimer = null;
+    function onSearchInput(){
+      const input = $('convSearch');
+      convSearchTerm = (input.value || '').trim();
+      $('convSearchClear').hidden = !input.value;
+      clearTimeout(searchTimer);
+      searchHits = null;
+      renderConvList();
+      if (!convSearchTerm || !convSupported) return;
+      const seq = ++searchSeq;
+      searchTimer = setTimeout(async () => {
+        try{
+          const r = await convFetch('/api/conversations?q=' + encodeURIComponent(convSearchTerm));
+          const d = await r.json().catch(() => null);
+          if (seq !== searchSeq || !r.ok || !d || !d.ok) return;                    // stale or failed → keep the local filter
+          searchHits = d.conversations || [];
+          renderConvList();
+        }catch(e){ /* keep local results */ }
+      }, 220);
+    }
+    $('convSearch')?.addEventListener('input', onSearchInput);
+    $('convSearch')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && $('convSearch').value){ e.stopPropagation(); $('convSearch').value = ''; onSearchInput(); }
+      else if (e.key === 'Enter'){ const first = $('convList').querySelector('.conv-main'); first && first.click(); }
+    });
+    $('convSearchClear')?.addEventListener('click', () => { $('convSearch').value = ''; onSearchInput(); $('convSearch').focus(); });
+    window.addEventListener('keydown', (e) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.shiftKey && (e.key === 'O' || e.key === 'o')){ e.preventDefault(); showProjectForm($('projectForm').hidden); }
+      else if (mod && !e.shiftKey && (e.key === 'k' || e.key === 'K')){
+        e.preventDefault();
+        openMenu();
+        setTimeout(() => $('convSearch')?.focus(), 60);
+      }
+    });
+
+    // ── profile badge ──
+    function renderProfile(){
+      const signed = !!isAuthenticatedUser;
+      const name = signed ? (authUser.name || (authUser.email || '').split('@')[0] || 'User') : 'Guest';
+      if ($('menuName')) $('menuName').textContent = name;
+      if ($('menuEmail')) $('menuEmail').textContent = signed ? (authUser.email || '') : 'Not signed in';
+      if ($('menuAvatar')) $('menuAvatar').textContent = (name || '?').trim().charAt(0).toUpperCase() || '?';
+      if ($('menuStatusText')) $('menuStatusText').textContent = signed ? 'Signed in · active' : 'Guest · temporary';
+      $('menuStatusDot')?.classList.toggle('on', signed);
+      $('menuStatusDot')?.classList.toggle('guest', !signed);
+      if ($('menuLogout')) $('menuLogout').hidden = !signed;
+      if ($('menuSignIn')) $('menuSignIn').hidden = signed;
+    }
+    // ── Menu hub: appearance (theme + accent glow), server status, tools ──
+    const hubEl = $('menuHub'), hubBtn = $('menuProfileBtn');
+    function setHub(open){
+      if (!hubEl || !hubBtn) return;
+      hubEl.hidden = !open;
+      hubBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      hubBtn.classList.toggle('open', !!open);
+      if (open){ refreshFacts(); refreshReminders(); }
+    }
+    hubBtn?.addEventListener('click', () => setHub(hubEl.hidden));
+    window.__openMenuHub = () => { openMenu(); setHub(true); hubBtn?.scrollIntoView({ block: 'nearest' }); };
+
+    const lsGet = (k, d) => { try{ return localStorage.getItem(k) || d; }catch(e){ return d; } };
+    const lsSet = (k, v) => { try{ localStorage.setItem(k, v); }catch(e){} };
+    const lightMq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: light)') : null;
+    function applyTheme(pref){
+      if (['system','dark','light'].indexOf(pref) < 0) pref = 'dark';
+      const light = pref === 'light' || (pref === 'system' && !!(lightMq && lightMq.matches));
+      const root = document.documentElement;
+      root.setAttribute('data-theme', light ? 'light' : 'dark');
+      root.setAttribute('data-theme-pref', pref);
+      $('metaThemeColor')?.setAttribute('content', light ? '#f4f5fb' : '#070709');
+      document.querySelectorAll('#themeSeg .seg-btn').forEach(b => {
+        const on = b.dataset.themePref === pref;
+        b.classList.toggle('on', on); b.setAttribute('aria-checked', on ? 'true' : 'false'); b.tabIndex = on ? 0 : -1;
+      });
+    }
+    function applyAccent(acc){
+      if (['auto','violet','emerald','blue'].indexOf(acc) < 0) acc = 'auto';
+      document.documentElement.setAttribute('data-accent', acc);
+      document.querySelectorAll('#accentSw .sw').forEach(b => {
+        const on = b.dataset.accent === acc;
+        b.classList.toggle('on', on); b.setAttribute('aria-checked', on ? 'true' : 'false'); b.tabIndex = on ? 0 : -1;
+      });
+    }
+    $('themeSeg')?.addEventListener('click', (e) => {
+      const b = e.target.closest('.seg-btn'); if (!b) return;
+      lsSet('sherz_theme', b.dataset.themePref); applyTheme(b.dataset.themePref);
+    });
+    $('accentSw')?.addEventListener('click', (e) => {
+      const b = e.target.closest('.sw'); if (!b) return;
+      lsSet('sherz_accent', b.dataset.accent); applyAccent(b.dataset.accent);
+    });
+    // arrow keys move inside a radiogroup
+    for (const gid of ['themeSeg', 'accentSw']){
+      $(gid)?.addEventListener('keydown', (e) => {
+        if (!['ArrowRight','ArrowLeft','ArrowDown','ArrowUp'].includes(e.key)) return;
+        const items = [...$(gid).querySelectorAll('button')]; const i = items.indexOf(document.activeElement); if (i < 0) return;
+        e.preventDefault();
+        const n = items[(i + (e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length];
+        n.focus(); n.click();
+      });
+    }
+    const onSys = () => { if (document.documentElement.getAttribute('data-theme-pref') === 'system') applyTheme('system'); };
+    if (lightMq){ lightMq.addEventListener ? lightMq.addEventListener('change', onSys) : lightMq.addListener && lightMq.addListener(onSys); }
+    applyTheme(lsGet('sherz_theme', 'dark'));
+    applyAccent(lsGet('sherz_accent', 'auto'));
+
+    // server status (public /health)
+    async function pingServer(){
+      const box = $('menuServer'), txt = $('menuServerText'); if (!box || !txt) return;
+      let state = 'down';
+      try{
+        const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 6000);
+        const r = await fetch(apiUrl('/health'), { cache: 'no-store', signal: ctrl.signal });
+        clearTimeout(t);
+        state = r.ok ? 'up' : 'down';
+      }catch(e){ state = 'down'; }
+      box.dataset.state = state;
+      txt.textContent = state === 'up' ? 'Server · active' : 'Server · unreachable';
+    }
+    pingServer();
+    setInterval(() => { if (!document.hidden) pingServer(); }, 30000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) pingServer(); });
+
+    $('menuLogout')?.addEventListener('click', () => window.__signOut());
+    $('menuSignIn')?.addEventListener('click', () => window.__signInWithGoogle());
+    renderProfile();
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Message actions — hover bar · right-click / long-press menu · select mode · delete
+    //   Copy / Select / Delete on any bubble; Select lets you tick several and delete them together.
+    //   Deleting is optimistic (the bubble shrinks away at once) and rolls back if the server refuses.
+    // ═══════════════════════════════════════════════════════════════════════
+    const msgActions = (function(){
+      const ICON = {
+        more:  '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/></svg>',
+        trash: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>',
+        copy:  '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>',
+        check: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg>',
+        x:     '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>'
+      };
+      const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+      const btn = (cls, label, html) => { const b = el('button', cls, html); b.type = 'button'; b.setAttribute('aria-label', label); return b; };
+
+      // ── building blocks (all created once, kept out of the feed so streaming never wipes them) ──
+      const bar = el('div', 'msg-bar'); bar.hidden = true; bar.setAttribute('role', 'toolbar'); bar.setAttribute('aria-label', 'Message actions');
+      const barMore = btn('mb-btn', 'More actions', ICON.more), barDel = btn('mb-btn mb-danger', 'Delete message', ICON.trash);
+      bar.append(barMore, barDel);
+
+      const menu = el('div', 'msg-menu'); menu.hidden = true; menu.id = 'msgMenu'; menu.setAttribute('role', 'menu');
+      const miCopy = btn('mm-item', 'Copy', ICON.copy + '<span>Copy</span>'), miSel = btn('mm-item', 'Select', ICON.check + '<span>Select</span>'), miDel = btn('mm-item mm-danger', 'Delete', ICON.trash + '<span>Delete</span>');
+      for (const m of [miCopy, miSel, miDel]) m.setAttribute('role', 'menuitem');
+      menu.append(miCopy, miSel, miDel);
+
+      const confirmBox = el('div', 'msg-confirm'); confirmBox.hidden = true; confirmBox.setAttribute('role', 'alertdialog'); confirmBox.setAttribute('aria-label', 'Delete message');
+      const cfText = el('div', 'mc-text', '<b>Delete this message?</b><span>This can’t be undone.</span>');
+      const cfNo = btn('mc-btn', 'Cancel', 'Cancel'), cfYes = btn('mc-btn mc-yes', 'Delete', 'Delete');
+      const cfRow = el('div', 'mc-row'); cfRow.append(cfNo, cfYes); confirmBox.append(cfText, cfRow);
+
+      const toastEl = el('div', 'msg-toast'); toastEl.hidden = true; toastEl.setAttribute('role', 'status'); toastEl.setAttribute('aria-live', 'polite');
+
+      const selBar = el('div', 'sel-bar'); selBar.hidden = true;
+      const selMain = el('div', 'sel-main'), selAsk = el('div', 'sel-ask'); selAsk.hidden = true;
+      const selX = btn('sel-x', 'Cancel selection', ICON.x), selCount = el('span', 'sel-count', 'Select messages'); selCount.setAttribute('aria-live', 'polite');
+      const selCopy = btn('sel-btn', 'Copy selected', ICON.copy + '<span>Copy</span>'), selDel = btn('sel-btn sel-danger', 'Delete selected', ICON.trash + '<span>Delete Selected</span>');
+      selMain.append(selX, selCount, el('span', 'sel-spacer'), selCopy, selDel);
+      const askText = el('span', 'sel-ask-text'), askNo = btn('sel-btn', 'Cancel', 'Cancel'), askYes = btn('sel-btn sel-danger', 'Delete', 'Delete');
+      selAsk.append(askText, el('span', 'sel-spacer'), askNo, askYes);
+      selBar.append(selMain, selAsk);
+
+      (document.querySelector('.center-col') || document.body).appendChild(selBar);
+      document.body.append(bar, menu, confirmBox, toastEl);
+
+      // ── helpers ──
+      const isMsg = (b) => !!b && b.classList && b.classList.contains('bubble') && !b.classList.contains('project-intro') && !b.classList.contains('msg-leaving') && !b.querySelector(':scope > .dots') && (b.dataset.mid || b._raw != null);
+      const bubbleOf = (t) => { const b = t && t.closest ? t.closest('#log .bubble') : null; return isMsg(b) ? b : null; };
+      const roleOf = (b) => b.classList.contains('me') ? 'user' : 'ai';
+      const rawOf = (b) => {
+        if (b._raw != null) return String(b._raw);
+        const c = b.cloneNode(true); c.querySelectorAll('.time,.cb-head,.suggest').forEach(n => n.remove());
+        return (c.textContent || '').trim();
+      };
+      const msgBubbles = () => Array.from(feed.querySelectorAll('.bubble')).filter(isMsg);
+      let toastTimer = 0;
+      function toast(text, ms = 2600){
+        toastEl.textContent = text; toastEl.hidden = false; toastEl.classList.remove('show'); void toastEl.offsetWidth; toastEl.classList.add('show');
+        clearTimeout(toastTimer); toastTimer = setTimeout(() => { toastEl.classList.remove('show'); setTimeout(() => { toastEl.hidden = true; }, 220); }, ms);
+      }
+      function place(node, x, y){
+        node.style.left = '0px'; node.style.top = '0px';
+        const w = node.offsetWidth, h = node.offsetHeight, m = 8;
+        node.style.left = Math.max(m, Math.min(x, innerWidth - w - m)) + 'px';
+        node.style.top  = Math.max(m, Math.min(y, innerHeight - h - m)) + 'px';
+      }
+      async function copyText(t){
+        try{ await navigator.clipboard.writeText(t); }
+        catch(e){
+          const ta = document.createElement('textarea'); ta.value = t; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+          document.body.appendChild(ta); ta.select(); try{ document.execCommand('copy'); }catch(_){} ta.remove();
+        }
+        toast('Copied');
+      }
+
+      // ── hover bar (mouse only) ──
+      let barFor = null, hideTimer = 0, menuFor = null, menuAt = 0;
+      function showBar(b){
+        if (selecting || !menu.hidden || !confirmBox.hidden) return;
+        clearTimeout(hideTimer);
+        barFor = b; bar.hidden = false;
+        const r = b.getBoundingClientRect(), fr = feed.getBoundingClientRect(), w = bar.offsetWidth, h = bar.offsetHeight;
+        let top = Math.max(fr.top + 4, r.top - h / 2);
+        top = Math.min(top, fr.bottom - h - 4);
+        const left = b.classList.contains('me') ? r.left + 8 : r.right - w - 8;
+        bar.style.left = Math.max(6, Math.min(left, innerWidth - w - 6)) + 'px'; bar.style.top = top + 'px';
+        bar.classList.toggle('on-me', b.classList.contains('me'));
+      }
+      function hideBar(now){ clearTimeout(hideTimer); if (now){ bar.hidden = true; barFor = null; return; } hideTimer = setTimeout(() => { bar.hidden = true; barFor = null; }, 140); }
+      feed.addEventListener('pointermove', (e) => {
+        if (e.pointerType !== 'mouse') return;
+        const b = bubbleOf(e.target);
+        if (!b){ if (barFor) hideBar(); return; }                       // over empty feed space → fade the bar away
+        if (b !== barFor || bar.hidden) showBar(b); else clearTimeout(hideTimer);
+      });
+      feed.addEventListener('pointerleave', () => hideBar());
+      bar.addEventListener('pointerenter', () => clearTimeout(hideTimer));
+      bar.addEventListener('pointerleave', () => hideBar());
+      feed.addEventListener('scroll', () => { hideBar(true); closeMenu(); closeConfirm(); }, { passive: true });
+      addEventListener('resize', () => { hideBar(true); closeMenu(); closeConfirm(); });
+
+      // ── context menu ──
+      function openMenu(b, x, y){
+        hideBar(true); closeConfirm();
+        menuFor = b; menuAt = Date.now();
+        const s = window.getSelection ? window.getSelection() : null;
+        menu._copy = (s && String(s).trim() && b.contains(s.anchorNode)) ? String(s) : rawOf(b);   // selected words, else the whole message
+        miSel.querySelector('span').textContent = selecting ? (b.classList.contains('selected') ? 'Unselect' : 'Select') : 'Select';
+        menu.hidden = false; place(menu, x, y);
+        (miCopy).focus({ preventScroll: true });
+      }
+      function closeMenu(){ if (menu.hidden) return; menu.hidden = true; menuFor = null; }
+      feed.addEventListener('contextmenu', (e) => {
+        const b = bubbleOf(e.target); if (!b) return;
+        e.preventDefault(); openMenu(b, e.clientX, e.clientY);
+      });
+      // phones: long-press a bubble
+      let lp = null;
+      feed.addEventListener('pointerdown', (e) => {
+        if (e.pointerType === 'mouse') return;
+        const b = bubbleOf(e.target); if (!b || selecting) return;
+        const x = e.clientX, y = e.clientY; clearTimeout(lp && lp.t);
+        lp = { x, y, t: setTimeout(() => { lp = null; if (Date.now() - menuAt > 700) openMenu(b, x, y); }, 480) };
+      });
+      const cancelLp = () => { if (lp){ clearTimeout(lp.t); lp = null; } };
+      feed.addEventListener('pointermove', (e) => { if (lp && Math.hypot(e.clientX - lp.x, e.clientY - lp.y) > 9) cancelLp(); });
+      feed.addEventListener('pointerup', cancelLp); feed.addEventListener('pointercancel', cancelLp);
+      menu.addEventListener('keydown', (e) => {
+        const items = [miCopy, miSel, miDel], i = items.indexOf(document.activeElement);
+        if (e.key === 'ArrowDown'){ e.preventDefault(); items[(i + 1) % 3].focus(); }
+        else if (e.key === 'ArrowUp'){ e.preventDefault(); items[(i + 2) % 3].focus(); }
+        else if (e.key === 'Tab'){ e.preventDefault(); closeMenu(); }
+      });
+      miCopy.addEventListener('click', () => { const t = menu._copy; closeMenu(); copyText(t); });
+      miSel.addEventListener('click', () => { const b = menuFor; closeMenu(); if (!b) return; if (!selecting) enterSelect(b); else toggle(b); });
+      miDel.addEventListener('click', () => { const b = menuFor, r = menu.getBoundingClientRect(); closeMenu(); if (b) askDelete(b, r.left, r.top); });
+      barMore.addEventListener('click', () => { const b = barFor; if (!b) return; const r = barMore.getBoundingClientRect(); openMenu(b, r.left, r.bottom + 6); });
+      barDel.addEventListener('click', () => { const b = barFor; if (!b) return; const r = barDel.getBoundingClientRect(); askDelete(b, r.left - 120, r.bottom + 6); });
+      document.addEventListener('pointerdown', (e) => {
+        if (!menu.hidden && !menu.contains(e.target)) closeMenu();
+        if (!confirmBox.hidden && !confirmBox.contains(e.target) && !bar.contains(e.target)) closeConfirm();
+      }, true);
+
+      // ── single-delete confirmation ──
+      let confirmFor = null;
+      function askDelete(b, x, y){
+        hideBar(true); closeMenu();
+        confirmFor = b; b.classList.add('msg-target');
+        confirmBox.hidden = false; place(confirmBox, x, y);
+        cfYes.focus({ preventScroll: true });
+      }
+      function closeConfirm(){ if (confirmBox.hidden) return; confirmBox.hidden = true; if (confirmFor) confirmFor.classList.remove('msg-target'); confirmFor = null; }
+      cfNo.addEventListener('click', closeConfirm);
+      cfYes.addEventListener('click', () => { const b = confirmFor; closeConfirm(); if (b) deleteBubbles([b]); });
+      confirmBox.addEventListener('keydown', (e) => { if (e.key === 'Tab'){ e.preventDefault(); (document.activeElement === cfYes ? cfNo : cfYes).focus(); } });
+
+      // ── select mode ──
+      let selecting = false; const picked = new Set();
+      const pickedList = () => msgBubbles().filter(b => picked.has(b));
+      function updateSel(){
+        const n = pickedList().length;
+        selCount.textContent = n === 0 ? 'Select messages' : (n === 1 ? '1 message selected' : n + ' messages selected');
+        selDel.disabled = selCopy.disabled = n === 0;
+      }
+      function setPicked(b, on){ if (on) picked.add(b); else picked.delete(b); b.classList.toggle('selected', on); b.setAttribute('aria-checked', on ? 'true' : 'false'); }
+      function toggle(b){ setPicked(b, !picked.has(b)); updateSel(); }
+      function enterSelect(first){
+        hideBar(true); closeConfirm(); selecting = true;
+        feed.classList.add('selecting'); selBar.hidden = false; selMain.hidden = false; selAsk.hidden = true;
+        for (const b of msgBubbles()){ b.setAttribute('role', 'checkbox'); b.setAttribute('aria-checked', 'false'); b.tabIndex = 0; }
+        if (first) setPicked(first, true);
+        updateSel();
+      }
+      function exitSelect(){
+        if (!selecting) return;
+        selecting = false; closeConfirm();
+        for (const b of Array.from(picked)) setPicked(b, false);
+        picked.clear(); feed.classList.remove('selecting'); selBar.hidden = true; selMain.hidden = false; selAsk.hidden = true;
+        feed.querySelectorAll('.bubble[role="checkbox"]').forEach(b => { b.removeAttribute('role'); b.removeAttribute('aria-checked'); b.removeAttribute('tabindex'); });
+      }
+      feed.addEventListener('click', (e) => {
+        if (!selecting) return;
+        const b = bubbleOf(e.target); if (!b) return;
+        e.preventDefault(); e.stopPropagation(); toggle(b);
+      }, true);
+      feed.addEventListener('keydown', (e) => {
+        if (!selecting || (e.key !== ' ' && e.key !== 'Enter')) return;
+        const b = bubbleOf(e.target); if (!b || e.target !== b) return;
+        e.preventDefault(); toggle(b);
+      });
+      selX.addEventListener('click', exitSelect);
+      selCopy.addEventListener('click', () => { const t = pickedList().map(rawOf).join('\n\n'); if (t) copyText(t); });
+      selDel.addEventListener('click', () => {
+        const n = pickedList().length; if (!n) return;
+        askText.textContent = n === 1 ? 'Delete 1 message? This can’t be undone.' : 'Delete ' + n + ' messages? This can’t be undone.';
+        selMain.hidden = true; selAsk.hidden = false; askYes.focus({ preventScroll: true });
+      });
+      askNo.addEventListener('click', () => { selAsk.hidden = true; selMain.hidden = false; selDel.focus({ preventScroll: true }); });
+      askYes.addEventListener('click', () => { const list = pickedList(); exitSelect(); deleteBubbles(list); });
+
+      // Esc / Delete keys
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape'){
+          if (!confirmBox.hidden){ closeConfirm(); e.preventDefault(); }
+          else if (!menu.hidden){ closeMenu(); e.preventDefault(); }
+          else if (selecting && !selAsk.hidden){ askNo.click(); e.preventDefault(); }
+          else if (selecting){ exitSelect(); e.preventDefault(); }
+        } else if ((e.key === 'Delete' || e.key === 'Backspace') && selecting && selAsk.hidden && picked.size && !/^(INPUT|TEXTAREA)$/.test((document.activeElement || {}).tagName || '')){
+          e.preventDefault(); selDel.click();
+        }
+      });
+
+      // ── ids: bubbles made in this session don't know their server id yet → match them against recent history ──
+      async function ensureIds(list){
+        const need = list.filter(b => !b.dataset.mid); if (!need.length) return;
+        try{
+          const qs = new URLSearchParams({ limit: '100', userId: String(GUEST_ID || '') });
+          if (convSupported && currentConvId) qs.set('conversationId', currentConvId);
+          const r = await fetchWithAuth(apiUrl('/api/chat/history?' + qs.toString()));
+          const d = r.ok ? await r.json().catch(() => null) : null;
+          if (!d || !Array.isArray(d.messages)) return;
+          const server = d.messages.slice().reverse();                                  // newest first
+          const taken = new Set(Array.from(feed.querySelectorAll('.bubble[data-mid]')).map(x => x.dataset.mid));
+          const pool = Array.from(new Set([...feed.querySelectorAll('.bubble')].filter(x => !x.dataset.mid && isMsg(x)).concat(need)));
+          pool.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1);
+          let si = 0;
+          for (const b of pool.reverse()){                                              // newest bubble ↔ newest identical message
+            const role = roleOf(b), want = rawOf(b).trim();
+            for (let i = si; i < server.length; i++){
+              const m = server[i];
+              if (taken.has(m.id) || m.role !== role) continue;
+              if (String(m.text || '').trim() === want){ b.dataset.mid = m.id; taken.add(m.id); si = i + 1; break; }
+            }
+          }
+        }catch(e){ console.warn('[delete] id lookup failed:', e.message); }
+      }
+
+      // ── the deletion itself ──
+      function collapse(b){
+        return new Promise((resolve) => {
+          const h = b.offsetHeight; b.style.height = h + 'px'; void b.offsetHeight;
+          b.classList.add('msg-leaving'); b.style.height = '0px';
+          let done = false; const fin = () => { if (done) return; done = true; resolve(); };
+          b.addEventListener('transitionend', (ev) => { if (ev.target === b && ev.propertyName === 'height') fin(); });
+          setTimeout(fin, 520);
+        });
+      }
+      let delBusy = 0;
+      async function deleteBubbles(list){
+        list = list.filter(b => b.isConnected && isMsg(b)); if (!list.length) return;
+        list.forEach(b => b.classList.add('msg-pending'));
+        await ensureIds(list);
+        list.forEach(b => b.classList.remove('msg-pending'));
+        list = list.filter(b => b.isConnected); if (!list.length) return;
+        const ids = list.map(b => b.dataset.mid).filter(Boolean);                       // no id = never saved (greeting etc.) → local only
+        const snap = list.map(b => ({ b, prev: b.previousElementSibling, next: b.nextElementSibling }));
+        delBusy++;
+        const gone = Promise.all(list.map(collapse)).then(() => list.forEach(b => b.remove()));
+        let ok = true, why = '';
+        if (ids.length){
+          try{
+            const r = ids.length === 1
+              ? await fetchWithAuth(apiUrl('/api/messages/' + encodeURIComponent(ids[0]) + '?userId=' + encodeURIComponent(String(GUEST_ID || ''))), { method: 'DELETE' })
+              : await fetchWithAuth(apiUrl('/api/messages/delete'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, userId: String(GUEST_ID || '') }) });
+            const d = await r.json().catch(() => null);
+            if (r.ok && d && d.ok) ok = true;
+            else if (r.status === 404 && d && d.ok === false && d.error === 'not found') ok = true;          // already gone on the server
+            else { ok = false; why = (r.status === 404 && !d) ? 'Deleting messages needs the server update — apply the patch and restart.' : 'Couldn’t delete — try again.'; }
+          }catch(e){ ok = false; why = 'Couldn’t delete — check your connection.'; }
+        }
+        await gone; delBusy--;
+        if (!ok){
+          for (const { b, prev, next } of snap.reverse()){                               // put them back where they were
+            b.classList.remove('msg-leaving', 'msg-pending'); b.style.height = ''; b.classList.add('msg-restore');
+            if (next && next.isConnected) feed.insertBefore(b, next); else if (prev && prev.isConnected) prev.after(b); else feed.appendChild(b);
+            setTimeout(() => b.classList.remove('msg-restore'), 500);
+          }
+          toast(why, 4200); return;
+        }
+        if (!feed.querySelector('.bubble')) introForCurrent();                           // emptied the chat → show the usual starting card
+        toast(list.length === 1 ? 'Message deleted' : list.length + ' messages deleted');
+      }
+
+      return { exit: exitSelect, isSelecting: () => selecting, deleteBubbles, ensureIds };
+    })();
+    window.__msgSel = msgActions;
+
+    // "jump to latest" pill, shown only while the reader is scrolled away from the bottom
+    const jumpBtn = document.createElement('button');
+    jumpBtn.type = 'button';
+    jumpBtn.id = 'jumpLatest';
+    jumpBtn.textContent = '↓ Eng so‘nggisi';
+    jumpBtn.addEventListener('click', () => feed.scrollTo({ top: feed.scrollHeight, behavior: 'smooth' }));
+    feed.parentElement?.appendChild(jumpBtn);
+
     // init
     setStatus('idle');
     startPlaceholderRotation();
     scheduleIdleUX();
-    connectSSE((GUEST_ID));
-    runIntroIfEmpty();
+    // ✅ One endless thread: wait for identity, load the newest page from the server,
+    // THEN connect SSE and (only if the thread is empty) greet. Older pages lazy-load on scroll-up.
+    (async () => {
+      await authReady;
+      await initConversations();
+      const hadHistory = await loadHistoryPage(true);
+      if (hadHistory) setOrbChatActive(true);
+      connectSSE((GUEST_ID));
+      if (!hadHistory) introForCurrent();
+    })();
  
   // =========================
 // ✅ Device Battery → Energy

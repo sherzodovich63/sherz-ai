@@ -25,6 +25,7 @@
     "express": "^5.1.0",
     "express-rate-limit": "^8.1.0",
     "form-data": "^4.0.4",
+    "google-auth-library": "^11.2.0",
     "googleapis": "^159.0.0",
     "helmet": "^8.1.0",
     "joi": "^18.0.1",
