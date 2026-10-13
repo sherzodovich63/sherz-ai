@@ -17,6 +17,7 @@ import { z }       from 'zod';
 import { OAuth2Client } from 'google-auth-library';
 import { signJwt, authRequired, optionalAuth } from '../middleware/auth.js';
 import { googleLogin } from '../lib/googleLogin.js';
+import { resolveRedirect, resolveClientId, maskId, buildAuthUrl, frontendBase } from '../lib/googleOAuthConfig.js'; // ✅ one source of truth for the redirect_uri
 import { isGuestId } from '../lib/guestMerge.js';
 
 const googleClient = new OAuth2Client();
@@ -234,20 +235,32 @@ export function authRouter(prisma) {
   // Frontend: window.location.href = '/api/auth/google'
   // ──────────────────────────────────────────────────────────────
   router.get('/google', (req, res) => {
-    const clientId    = process.env.GOOGLE_CLIENT_ID;
-    const redirectUri = process.env.GOOGLE_REDIRECT;
+    const clientId = resolveClientId();
+    const { redirectUri, source, warnings } = resolveRedirect({ req });
     if (!clientId || !redirectUri) {
-      return res.status(503).json({ ok: false, error: 'Google OAuth not configured' });
+      console.error('[auth/google] not configured:', { hasClientId: !!clientId, warnings });
+      return res.status(503).json({ ok: false, error: 'Google OAuth not configured', problems: warnings });
     }
-    const params = new URLSearchParams({
-      client_id:     clientId,
-      redirect_uri:  redirectUri,
-      response_type: 'code',
-      scope:         'openid email profile',
-      access_type:   'offline',
-      prompt:        'select_account',
+    warnings.forEach((w) => console.warn('[auth/google] ⚠️', w));
+    // Logged so the exact value Google receives is visible in Render's logs (client_id is public; no secret here)
+    console.log(`[auth/google] redirecting to Google · redirect_uri=${redirectUri} (from ${source}) · client_id=${maskId(clientId)}`);
+    res.redirect(buildAuthUrl({ clientId, redirectUri }));
+  });
+
+  // GET /api/auth/google/debug — shows what we WOULD send to Google (no secrets). Open it in the browser to compare
+  // `redirectUri` with the Authorized redirect URIs in Google Cloud Console — they must match character for character.
+  router.get('/google/debug', (req, res) => {
+    const clientId = resolveClientId();
+    const r = resolveRedirect({ req });
+    res.set('Cache-Control', 'no-store').json({
+      ok: !!(clientId && r.redirectUri),
+      redirectUri: r.redirectUri, source: r.source,
+      rawEnvGOOGLE_REDIRECT: process.env.GOOGLE_REDIRECT == null ? null : JSON.stringify(process.env.GOOGLE_REDIRECT),
+      clientIdMasked: maskId(clientId), clientIdLooksRight: /^\d+-[a-z0-9]+\.apps\.googleusercontent\.com$/.test(clientId || ''),
+      hasClientSecret: !!process.env.GOOGLE_CLIENT_SECRET, frontendBase: frontendBase() || '(same origin)',
+      warnings: r.warnings,
+      mustBeInGoogleConsole: r.redirectUri,
     });
-    res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
   });
 
   // ──────────────────────────────────────────────────────────────
@@ -261,15 +274,16 @@ export function authRouter(prisma) {
   // ──────────────────────────────────────────────────────────────
   router.get('/google/callback', async (req, res) => {
     const { code, error } = req.query;
+    const back = frontendBase();                          // e.g. https://sherz-ai.vercel.app — the token must land on the FRONTEND origin
 
     if (error || !code) {
       console.error('[google/callback] error from Google:', error);
-      return res.redirect('/?auth_error=' + encodeURIComponent(error || 'no_code'));
+      return res.redirect(back + '/?auth_error=' + encodeURIComponent(error || 'no_code'));
     }
 
-    const clientId     = process.env.GOOGLE_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    const redirectUri  = process.env.GOOGLE_REDIRECT;
+    const clientId     = resolveClientId();
+    const clientSecret = String(process.env.GOOGLE_CLIENT_SECRET || '').trim();
+    const redirectUri  = resolveRedirect({ req }).redirectUri;   // must equal the one sent in step 1
 
     try {
       // ── Step 1: Exchange code → access_token + id_token ──────
@@ -337,11 +351,11 @@ export function authRouter(prisma) {
 
       // ── Step 5: Redirect to frontend with token ───────────────
       // The frontend catches ?token= on load and stores it in localStorage
-      res.redirect(`/?token=${encodeURIComponent(token)}&name=${encodeURIComponent(user.name || '')}`);
+      res.redirect(`${back}/?token=${encodeURIComponent(token)}&name=${encodeURIComponent(user.name || '')}`);
 
     } catch (err) {
       console.error('[google/callback] error:', err.message);
-      res.redirect('/?auth_error=' + encodeURIComponent(err.message));
+      res.redirect(back + '/?auth_error=' + encodeURIComponent(err.message));
     }
   });
 

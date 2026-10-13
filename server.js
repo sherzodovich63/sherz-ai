@@ -27,6 +27,7 @@ import { runSkill } from './brain/skillsRouter.js';
 import { runBrain, resetFriendBrainState } from './brain/brain.js'; // ✅ FIX: Wire the GPT brain
 import * as killSwitch from './lib/killSwitch.js'; // ✅ Sprint 3 admin layer
 import adminRouter from './routes/admin.js'; // ✅ Sprint 3 admin layer
+import { agentRouter, makeGate } from './routes/agent.js'; // ✅ Agent Approval Gate (Phase 1)
 import { warnIfAdminMisconfigured, adminRequired } from './middleware/adminAuth.js'; // ✅ Sprint 3 admin layer
 import { runExpertTurn } from './brain/expertTurn.js'; // ✅ NEW: Expert Mode tool-calling loop
 import { openai } from './llm/openaiClient.js'; // ✅ FIX: was referenced (search.qa synthesis) but never imported — latent ReferenceError
@@ -1794,7 +1795,7 @@ async function runBrainFlow(userId, clean, image, { onToken, expertMode = false,
     // compaction) stays identical for both paths; only which function
     // actually talks to the model differs.
     const brainResult = expertMode
-      ? await runExpertTurn({ userId, messages, prisma, image: image ?? null, onToken, workMode })
+      ? await runExpertTurn({ userId, messages, prisma, image: image ?? null, onToken, workMode, agentGate, conversationId: conv ? conv.id : (conversationId || null) })
       : await runBrain({ userId, messages, prisma, image: image ?? null, onToken, workMode });
 
     const said = brainResult?.content || brainResult?.said || null;
@@ -1841,7 +1842,7 @@ async function runBrainFlow(userId, clean, image, { onToken, expertMode = false,
 
     learnSkillHit('brain.llm', true);
     await logSkillFact(userId, 'brain.llm', true);
-    return { said };
+    return { said, plans: brainResult?.plans || [] };   // plans = Approval-Gate proposals waiting for the user
 
   } catch (brainErr) {
     console.error('[brain.llm] runBrain threw:', brainErr);
@@ -2043,6 +2044,10 @@ app.post('/api/messages/delete', async (req, res) => {
 import { chatImageMiddleware, normalizeImage, chatImageNote, IMAGE_ONLY_PROMPT } from './lib/chatImage.js'; // ✅ picture + text turns
 const chatImage = chatImageMiddleware();
 
+// ── Agent Approval Gate (Phase 1): plans are proposed, the USER approves, only then anything runs ──
+const agentGate = makeGate({ prisma, isHalted: () => killSwitch.isEngaged('expert') });
+app.use('/api/agent', agentRouter({ gate: agentGate, isProd }));
+
 app.post('/api/chat', chatImage, async (req, res) => {
   try {
     // Extract text from both naming conventions used by the frontend
@@ -2057,6 +2062,7 @@ app.post('/api/chat', chatImage, async (req, res) => {
     // /handle-intent uses (runSkillCandidates/runBrainFlow), so behavior is
     // unchanged — just no internal HTTP hop.
     let said;
+    let plans = [];
     let conversationId;
     let conversation;
     if (!clean && !req.body?.image) {
@@ -2073,11 +2079,12 @@ app.post('/api/chat', chatImage, async (req, res) => {
         // saving), so without this it was never persisted at all.
         await persistSkillTurn(userId, clean, said, conversationId);
       } else {
-        said = (await runBrainFlow(userId, clean, req.body?.image, { conversationId, conversation })).said;
+        const bf = await runBrainFlow(userId, clean, req.body?.image, { conversationId, conversation });
+        said = bf.said; plans = bf.plans || [];
       }
     }
 
-    return res.json({ ok: true, reply: said, said, conversationId });
+    return res.json({ ok: true, reply: said, said, conversationId, plans });
   } catch (e) {
     console.error('/api/chat error:', e);
     res.status(500).json({ ok: false, error: 'chat failed' });
@@ -2161,7 +2168,7 @@ app.post('/api/chat-stream', chatImage, async (req, res) => {
     // call. Normal chat keeps the original 25s unchanged.
     const brainTimeoutMs = (expertMode || workModeFor(conversation)) ? 90000 : 25000;
 
-    const { said } = await withFallbackTimeout(
+    const { said, plans } = await withFallbackTimeout(
       runBrainFlow(userId, clean, req.body?.image, {
         onToken: (delta) => { if (!closed) send('chunk', { delta }); },
         expertMode,
@@ -2173,6 +2180,7 @@ app.post('/api/chat-stream', chatImage, async (req, res) => {
     );
 
     console.log(`[chat-stream] reply ready (${String(said || '').length} chars)${req.body?.image ? ' [image turn]' : ''}`);
+    for (const p of (plans || [])) if (!closed) send('plan', p);   // Approve / Reject card in the chat
     if (!closed) send('done', { text: said, conversationId });
 
   } catch (e) {

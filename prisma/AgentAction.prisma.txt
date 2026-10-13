@@ -1,0 +1,19 @@
+// Append this model to the END of your prisma/schema.prisma, then run:  npx prisma db push
+// (adds one new table; nothing existing is touched. No relation to User on purpose — guest ids can't break a foreign key.)
+model AgentAction {
+  id             String    @id @default(cuid())
+  userId         String
+  conversationId String?
+  title          String
+  source         String    @default("user")      // "user" | "assistant" — who proposed it
+  plan           Json                           // [{tool,args,risk,reversible,summary}]
+  planHash       String                         // what the user approved must match this exactly
+  risk           String    @default("low")      // highest step risk
+  status         String    @default("pending")  // pending | executing | executed | failed | rejected | expired
+  result         Json?                          // per-step results
+  history        Json      @default("[]")       // audit trail — also the raw data for Phase 2 trust learning
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([userId, status, createdAt])
+}

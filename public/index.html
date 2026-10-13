@@ -2073,8 +2073,9 @@ html.platform-ios body {
       }catch(_){ return file; }
     }
     // One place builds the request: multipart when a picture is attached, JSON otherwise.
-    function buildChatRequest(q, file){
+    function buildChatRequest(q, file, expert){
       const base = { message: q, userId: GUEST_ID, conversationId: currentConvId || 'new' };
+      if (expert) base.expertMode = true;                         // "/agent …" → Expert Mode, where the model may PROPOSE plans
       if (file){
         const fd = new FormData();                               // NB: no manual Content-Type — the browser adds the boundary
         fd.append('image', file, file.name || 'photo.jpg');
@@ -2088,14 +2089,17 @@ html.platform-ios body {
       const att = window.__sherzAttachment;
       const file = att && att.get ? att.get() : null;
       const ta = $('text');
-      const msg = ta.value.trim();
+      let msg = ta.value.trim();
+      let expert = false;
+      const slash = /^\/agent\b\s*/i.exec(msg);                  // "/agent make a note called ideas.md …"
+      if (slash){ expert = true; msg = msg.slice(slash[0].length).trim(); }
       if (!msg && !file) return;
       const thumb = file ? await fileToDataUrl(file).catch(()=>null) : null;   // data: URL so the bubble thumbnail can't be CSP-blocked
       setOrbChatActive(true);                                    // user's own message — shrink the orb
       addUser(msg, thumb);
       if (msg) setMoodUI(detectMood(msg));
       const sent = ta.value;
-      sendToServer(msg, 'text', { file, onAccepted: ()=>{
+      sendToServer(msg, 'text', { file, expert, onAccepted: ()=>{
         if (file && att && att.get && att.get() === file) att.clear();   // clear the preview only once the server took it
         if (ta.value === sent) ta.value = '';
       }});
@@ -2175,6 +2179,113 @@ html.platform-ios body {
       feed.scrollTop = feed.scrollHeight;
     }
     function hideTyping(){ if(typingEl){ typingEl.remove(); typingEl=null; } }
+
+    // =========================
+    // 🛡️ Agent plan cards — Execution Plan + [ Approve & Execute ] / [ Reject / Edit ]
+    // Nothing runs until the user presses Approve; the server enforces it (planHash + atomic claim).
+    // =========================
+    const planCards = new Map();
+    function agentCall(path, method, body){
+      return fetchWithAuth(apiUrl('/api/agent' + path), { method: method || 'GET', headers: {'Content-Type':'application/json'}, body: body ? JSON.stringify(body) : undefined })
+        .then(async (r)=>({ ok: r.ok, status: r.status, j: await r.json().catch(()=>({})) }));
+    }
+    const RISK_TXT = { low:'Low risk', medium:'Medium risk', high:'High risk' };
+    function planOutput(o){
+      if (!o) return '';
+      if (o.filename && typeof o.bytes === 'number') return `${o.overwritten ? 'Updated' : 'Saved'} ${o.filename} (${o.bytes} B)`;
+      if (o.deleted) return `Deleted ${o.filename}`;
+      if (Array.isArray(o.files)) return o.files.length ? o.files.join(', ') : 'no notes yet';
+      const t = JSON.stringify(o); return t.length > 140 ? t.slice(0,140) + '…' : t;
+    }
+    function renderPlanCard(plan){
+      if (!plan || !plan.id) return;
+      let el = planCards.get(plan.id);
+      if (!el || !el.isConnected){
+        el = document.createElement('div');
+        el.className = 'bubble ai plan-card';
+        el.dataset.planId = plan.id;
+        planCards.set(plan.id, el);
+        feed.appendChild(el);
+      }
+      el._plan = plan;
+      if (!el._busy) el._edit = el._edit && plan.status === 'pending';
+      paintPlan(el);
+      feed.scrollTop = feed.scrollHeight;
+    }
+    function paintPlan(el){
+      const p = el._plan, pending = p.status === 'pending';
+      el.dataset.status = el._busy ? 'executing' : p.status;
+      const steps = (p.steps || []).map((s, i)=>{
+        const r = p.results && p.results.find((x)=>x.i === i);
+        const mark = r ? (r.status === 'ok' ? '✓' : r.status === 'error' ? '✗' : '–') : (i + 1);
+        const out = r ? (r.status === 'ok' ? planOutput(r.output) : r.status === 'error' ? (r.error || 'failed') : 'skipped') : '';
+        const body = el._edit
+          ? `<textarea class="plan-args" data-i="${i}" rows="${Math.min(8, JSON.stringify(s.args, null, 2).split('\n').length)}" spellcheck="false">${esc(JSON.stringify(s.args, null, 2))}</textarea>`
+          : '';
+        return `<li class="plan-step ${r ? 'is-' + r.status : ''}">
+          <span class="plan-n">${mark}</span>
+          <div class="plan-step-main"><div class="plan-sum">${esc(s.summary || s.tool)}</div>
+          <div class="plan-meta"><code>${esc(s.tool)}</code><span class="plan-chip risk-${esc(s.risk)}">${esc(RISK_TXT[s.risk] || s.risk)}</span>${s.reversible ? '' : '<span class="plan-chip irrev">Cannot be undone</span>'}</div>
+          ${body}${out ? `<div class="plan-out">${esc(out)}</div>` : ''}</div></li>`;
+      }).join('');
+      let foot = '', banner = '';
+      if (el._busy) foot = '<div class="plan-note">Running…</div>';
+      else if (pending && el._edit) foot = `<div class="plan-actions"><button class="plan-btn primary" data-act="save">Save changes</button><button class="plan-btn" data-act="cancel">Cancel</button></div>${el._err ? `<div class="plan-err">${esc(el._err)}</div>` : ''}`;
+      else if (pending) foot = `<div class="plan-actions"><button class="plan-btn primary" data-act="approve">Approve &amp; Execute</button><button class="plan-btn" data-act="edit">Edit</button><button class="plan-btn danger" data-act="reject">Reject</button></div><div class="plan-note">Nothing runs until you approve. Expires ${new Date(p.expiresAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}.${p.edited ? ' You edited this plan.' : ''}</div>${el._err ? `<div class="plan-err">${esc(el._err)}</div>` : ''}`;
+      else banner = { executed:'✓ Executed', failed:'✗ Stopped — a step failed', rejected:'Rejected — nothing was run', expired:'Expired — nothing was run' }[p.status] || p.status;
+      el.innerHTML = `<div class="plan-head"><span class="plan-title">🛡️ ${esc(p.title || 'Execution plan')}</span><span class="plan-chip risk-${esc(p.risk)}">${esc(RISK_TXT[p.risk] || p.risk)}</span></div>
+        <ol class="plan-steps">${steps}</ol>${banner ? `<div class="plan-banner st-${esc(p.status)}">${banner}</div>` : ''}${foot}`;
+      el._raw = `${p.title || 'Execution plan'}\n` + (p.steps || []).map((s, i)=>`${i + 1}. ${s.summary || s.tool}`).join('\n');
+    }
+    async function planAct(el, act){
+      const p = el._plan;
+      el._err = '';
+      if (act === 'edit'){ el._edit = true; return paintPlan(el); }
+      if (act === 'cancel'){ el._edit = false; return paintPlan(el); }
+      if (act === 'save'){
+        let steps;
+        try{
+          steps = (p.steps || []).map((s, i)=>{ const ta = el.querySelector(`textarea[data-i="${i}"]`); return { tool: s.tool, args: JSON.parse(ta.value || '{}') }; });
+        }catch(e){ el._err = 'Arguments must be valid JSON.'; return paintPlan(el); }
+        el._busy = true; paintPlan(el);
+        const r = await agentCall(`/${encodeURIComponent(p.id)}/edit`, 'POST', { steps });
+        el._busy = false;
+        if (r.ok && r.j.action){ el._edit = false; el._plan = r.j.action; } else el._err = r.j.error || 'Could not save the changes.';
+        return paintPlan(el);
+      }
+      if (act === 'reject'){
+        el._busy = true; paintPlan(el);
+        const r = await agentCall(`/${encodeURIComponent(p.id)}/reject`, 'POST', {});
+        el._busy = false;
+        if (r.ok && r.j.action) el._plan = r.j.action; else el._err = r.j.error || 'Could not reject.';
+        return paintPlan(el);
+      }
+      if (act === 'approve'){
+        el._busy = true; paintPlan(el);
+        let r;
+        try{ r = await agentCall(`/${encodeURIComponent(p.id)}/approve`, 'POST', { planHash: p.planHash }); }
+        catch(e){ r = { ok:false, j:{ error: 'Network error — nothing was confirmed. Check the plan status.' } }; }
+        el._busy = false;
+        if (r.ok && r.j.action) el._plan = r.j.action;
+        else { if (r.j && r.j.action) el._plan = r.j.action; el._err = (r.j && r.j.error) || 'Could not approve.'; }
+        paintPlan(el);
+        if (r.ok && el._plan.status === 'executed') feed.scrollTop = feed.scrollHeight;
+      }
+    }
+    feed.addEventListener('click', (ev)=>{
+      const b = ev.target.closest && ev.target.closest('.plan-card .plan-btn');
+      if (!b || b.disabled) return;
+      const el = b.closest('.plan-card');
+      if (el && !el._busy) planAct(el, b.dataset.act);
+    });
+    // plans that are still waiting (e.g. after a reload) come back into the chat they belong to
+    async function loadPendingPlans(){
+      try{
+        const r = await agentCall('/pending');
+        if (!r.ok) return;
+        (r.j.actions || []).filter((a)=>!a.conversationId || !currentConvId || a.conversationId === currentConvId).reverse().forEach(renderPlanCard);
+      }catch(_){}
+    }
 
     function addError(text){
       const wrap = document.createElement('div');
@@ -2547,7 +2658,7 @@ html.platform-ios body {
         const armWatchdog = () => { clearTimeout(wd); wd = setTimeout(()=>{ timedOut = true; try{ turnAbort.abort(); }catch(_){} }, 45000); };
         armWatchdog();
         if (opts.file && !opts.prepared) opts.prepared = await prepareImage(opts.file);
-        const req = buildChatRequest(q, opts.prepared || null);
+        const req = buildChatRequest(q, opts.prepared || null, opts.expert);
         const r = await fetchWithAuth(apiUrl('/api/chat-stream'), {
           method:'POST',
           headers: req.headers,
@@ -2636,6 +2747,8 @@ html.platform-ios body {
             } else if (eventType === 'done'){
               finalText = payload.text ?? liveText;
               adoptConversation(payload.conversationId);
+            } else if (eventType === 'plan'){
+              renderPlanCard(payload);                       // Approval Gate: the model proposed actions — nothing has run yet
             } else if (eventType === 'error'){
               throw new Error(payload.error || 'stream error');
             }
@@ -2705,7 +2818,7 @@ html.platform-ios body {
     // request+typewriter behavior the app used before streaming existed.
     async function sendToServerFallback(q, opts){
       opts = opts || {};
-      const req = buildChatRequest(q, opts.prepared || opts.file || null);
+      const req = buildChatRequest(q, opts.prepared || opts.file || null, opts.expert);
       const r = await fetchWithAuth(apiUrl('/api/chat'), {
         method:'POST',
         headers: req.headers,
@@ -3668,6 +3781,7 @@ function hideProactiveReturnToast(){
       if (work && opts.userAction !== false) openChatBar(window.matchMedia('(hover:hover)').matches);
       const ok = await loadHistoryPage(true);
       if (currentConvId !== id) return;
+      loadPendingPlans();
       if (ok) setOrbChatActive(true);
       else { setOrbChatActive(false); introForCurrent(); }
     }
@@ -4311,6 +4425,7 @@ function hideProactiveReturnToast(){
       await authReady;
       await initConversations();
       const hadHistory = await loadHistoryPage(true);
+      loadPendingPlans();
       if (hadHistory) setOrbChatActive(true);
       connectSSE((GUEST_ID));
       if (!hadHistory) introForCurrent();

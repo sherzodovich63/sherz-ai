@@ -39,6 +39,7 @@ import { buildFullSystemContext } from './systemContext.js';
 import { getToolSchemas, executeTool } from './tools.js';
 import { isExpertModeAllowed, isToolAllowed } from './expertModePermissions.js';
 import { isEngaged as killSwitchEngaged } from '../lib/killSwitch.js';
+import { agentToolSchemas, handleProposeCall, PROPOSE_TOOL_NAME } from '../lib/agent/expertBridge.js'; // ✅ Agent: propose-only tool (Approval Gate)
 
 function getLastUserText(messages = []) {
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -60,7 +61,7 @@ function getLastUserText(messages = []) {
  * @param {number} [params.maxToolHops=5] - safety cap so a confused loop can't run away
  * @returns {Promise<{ type:string, content:string, toolTrace:Array, hops:number }>}
  */
-export async function runExpertTurn({ userId, messages, prisma, image, onToken, maxToolHops = 5, workMode = null }) {
+export async function runExpertTurn({ userId, messages, prisma, image, onToken, maxToolHops = 5, workMode = null, agentGate = null, conversationId = null }) {
   console.log('🛠️ SHERZ Expert Mode turn', { userId, msgCount: messages?.length, maxToolHops });
 
   // 1) Safety — same gate as normal chat; Expert Mode does not bypass it
@@ -136,6 +137,7 @@ export async function runExpertTurn({ userId, messages, prisma, image, onToken, 
       '- Zarur bo\'lsa, mavjud tool\'lardan foydalaning (kod tekshirish, web fetch, todo/reminder/journal va h.k.).',
       '- Har bir qadamni aniq va ishonchli bajaring; noaniq bo\'lsa, taxmin qilmasdan so\'rang.',
       '- Tool natijasini userga xom holda qaytarmang — tushunarli, foydali shaklda izohlang.',
+      '- Tashqi amal (fayl yozish/o\'chirish va h.k.) kerak bo\'lsa, FAQAT propose_action_plan orqali reja taklif qiling. Reja user tasdiqlamaguncha hech narsa bajarilmaydi — "bajarildi" dema, "tasdiqlashingizni kutyapman" deng.',
     ].join('\n');
 
   const finalMessages = [
@@ -148,7 +150,9 @@ export async function runExpertTurn({ userId, messages, prisma, image, onToken, 
       })),
   ];
 
-  const tools = getToolSchemas();
+  // ✅ Agent: when the Approval Gate is available the model also gets `propose_action_plan` (it can only PROPOSE).
+  const tools = agentGate ? [...getToolSchemas(), ...agentToolSchemas()] : getToolSchemas();
+  const proposedPlans = [];
   const model = process.env.OPENAI_EXPERT_MODEL || process.env.OPENAI_CHAT_MODEL || 'gpt-4o';
 
   let hops = 0;
@@ -202,7 +206,12 @@ export async function runExpertTurn({ userId, messages, prisma, image, onToken, 
       const permission = isToolAllowed({ toolName });
 
       let toolResult;
-      if (!permission.allowed) {
+      if (agentGate && toolName === PROPOSE_TOOL_NAME) {
+        // never executes anything: stores a PENDING plan the user must approve in the chat UI
+        const h = await handleProposeCall({ gate: agentGate, args, userId, conversationId });
+        toolResult = h.toolResult;
+        if (h.plan) proposedPlans.push(h.plan);
+      } else if (!permission.allowed) {
         toolResult = { ok: false, error: permission.reason };
       } else {
         try {
@@ -261,6 +270,7 @@ export async function runExpertTurn({ userId, messages, prisma, image, onToken, 
     type: 'expert_response',
     content: finalText,
     toolTrace,
+    plans: proposedPlans,
     hops,
     haltedByKillSwitch,
   };
