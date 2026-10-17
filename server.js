@@ -27,7 +27,14 @@ import { runSkill } from './brain/skillsRouter.js';
 import { runBrain, resetFriendBrainState } from './brain/brain.js'; // ✅ FIX: Wire the GPT brain
 import * as killSwitch from './lib/killSwitch.js'; // ✅ Sprint 3 admin layer
 import adminRouter from './routes/admin.js'; // ✅ Sprint 3 admin layer
-import { agentRouter, makeGate } from './routes/agent.js'; // ✅ Agent Approval Gate (Phase 1)
+import { spacesRouter } from './routes/spaces.js';      // ✅ Work Spaces + Skills (Phase 4)
+import { loadWorkMode } from './lib/spaces.js';
+import { wantsDocFile } from './lib/docs/intent.js';
+import { filesRouter } from './routes/files.js';        // ✅ Excel/Word files (Phase 5)
+import { setFileStore, prismaFileStore } from './lib/docs/store.js';
+import { recordDecision as skillDecision } from './lib/skills.js';
+import { agentRouter, makeGate, makeTrust, makeRuns, makeConsent, makeAutonomy, makeConventions } from './routes/agent.js'; // ✅ Agent Approval Gate (Phase 1)
+import { helperRouter, makeHub } from './routes/helper.js'; // ✅ Helper program (files on the user's computer)
 import { warnIfAdminMisconfigured, adminRequired } from './middleware/adminAuth.js'; // ✅ Sprint 3 admin layer
 import { runExpertTurn } from './brain/expertTurn.js'; // ✅ NEW: Expert Mode tool-calling loop
 import { openai } from './llm/openaiClient.js'; // ✅ FIX: was referenced (search.qa synthesis) but never imported — latent ReferenceError
@@ -198,6 +205,7 @@ app.use('/api', (req, res, next) => {
   if (req.path.startsWith('/auth/'))     return next(); // auth self-manages
   if (req.path === '/search/diag')       return next(); // search diagnostics
   if (req.path.startsWith('/google/'))   return next(); // Google OAuth callback
+  if (req.path === '/helper/d/pair' || req.path === '/helper/d/poll' || req.path === '/helper/d/result') return next(); // helper program: authenticates with its own device token
 
   // ── DEV-only: skip auth if NODE_ENV !== 'production' ─────────────
   // This lets the browser use the app before the login UI is built.
@@ -1776,7 +1784,7 @@ async function runBrainFlow(userId, clean, image, { onToken, expertMode = false,
     let conv = conversation || null;
     if (!conv) { try { conv = await resolveConversation(prisma, userId, conversationId); } catch (e) { /* non-fatal */ } }
     if (conv) conversationId = conv.id;
-    const workMode = workModeFor(conv);
+    const workMode = await loadWorkMode(prisma, userId, conv, clean);   // Project → Work mode; Work Space chat → + profile & matching skills
 
     let history = [];
     try {
@@ -1795,7 +1803,7 @@ async function runBrainFlow(userId, clean, image, { onToken, expertMode = false,
     // compaction) stays identical for both paths; only which function
     // actually talks to the model differs.
     const brainResult = expertMode
-      ? await runExpertTurn({ userId, messages, prisma, image: image ?? null, onToken, workMode, agentGate, conversationId: conv ? conv.id : (conversationId || null) })
+      ? await runExpertTurn({ userId, messages, prisma, image: image ?? null, onToken, workMode, agentGate, helperHub, trust, runs: agentRuns, consent: agentConsent, autonomy: agentAutonomy, conventions, maxToolHops: 8, conversationId: conv ? conv.id : (conversationId || null) })
       : await runBrain({ userId, messages, prisma, image: image ?? null, onToken, workMode });
 
     const said = brainResult?.content || brainResult?.said || null;
@@ -1842,7 +1850,7 @@ async function runBrainFlow(userId, clean, image, { onToken, expertMode = false,
 
     learnSkillHit('brain.llm', true);
     await logSkillFact(userId, 'brain.llm', true);
-    return { said, plans: brainResult?.plans || [] };   // plans = Approval-Gate proposals waiting for the user
+    return { said, plans: brainResult?.plans || [], consents: brainResult?.consents || [] };   // plans = Approval-Gate proposals waiting for the user
 
   } catch (brainErr) {
     console.error('[brain.llm] runBrain threw:', brainErr);
@@ -2045,8 +2053,41 @@ import { chatImageMiddleware, normalizeImage, chatImageNote, IMAGE_ONLY_PROMPT }
 const chatImage = chatImageMiddleware();
 
 // ── Agent Approval Gate (Phase 1): plans are proposed, the USER approves, only then anything runs ──
-const agentGate = makeGate({ prisma, isHalted: () => killSwitch.isEngaged('expert') });
-app.use('/api/agent', agentRouter({ gate: agentGate, isProd }));
+const helperHub = makeHub({ prisma });
+app.use('/api/helper', helperRouter({ hub: helperHub, isProd }));
+const conventions = makeConventions({ prisma });             // Phase 3d: inferred naming/folder conventions + pinned rules
+const trust = makeTrust({ prisma, conventions });                       // Phase 2: learns from approvals/edits/rejections (never bypasses the gate)
+const agentConsent = makeConsent({ prisma });               // Phase 3: per-folder consent before file text reaches the model
+const agentAutonomy = makeAutonomy({ prisma, consent: agentConsent, trust, helper: helperHub, isHalted: () => killSwitch.isEngaged('expert') });   // Phase 3c: per-tool auto-approval policy (all OFF by default)
+const agentGate = makeGate({ prisma, isHalted: () => killSwitch.isEngaged('expert'), helper: helperHub, trust, autonomy: agentAutonomy });
+const agentRuns = makeRuns({ prisma });                     // Phase 3: AgentRun — budgets, taint, self-correction
+
+// Phase 3b: one follow-up model turn after a plan ran (or a folder was allowed). Same history, plus the system's result report.
+async function agentBuildTurn({ userId, run, message }) {
+  let conv = null; try { conv = await resolveConversation(prisma, userId, run.conversationId); } catch { /* non-fatal */ }
+  const workMode = await loadWorkMode(prisma, userId, conv, run.goal || '');
+  let history = [];
+  try { history = await fetchContextForLLM(prisma, userId, { conversationId: conv ? conv.id : undefined, ...(workMode ? WORK_CONTEXT : {}) }); } catch (e) { console.warn('[agent.continue] history load failed (non-fatal):', e.message); }
+  return runExpertTurn({ userId, messages: [...history, { role: 'user', content: message }], prisma, workMode, agentGate, helperHub, trust, runs: agentRuns, consent: agentConsent, autonomy: agentAutonomy, conventions, run, continuation: true, maxToolHops: 8, conversationId: conv ? conv.id : (run.conversationId || null) });
+}
+async function agentSaveReply({ userId, run, text }) {
+  const conv = await resolveConversation(prisma, userId, run.conversationId);
+  await prisma.message.create({ data: { userId, conversationId: conv.id, role: 'assistant', text } });
+  await prisma.conversation.update({ where: { id: conv.id }, data: { updatedAt: new Date() } });
+}
+const spaceGeneratorLlm = async ({ system, user }) => {          // "Describe your role" → Work Space profile (JSON); the router falls back to a template if this throws
+  const r = await openai.chat.completions.create({
+    model: process.env.SHERZ_SPACE_GEN_MODEL || process.env.SHERZ_FAST_MODEL || 'gpt-4o-mini',
+    messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+    response_format: { type: 'json_object' }, temperature: 0.4, max_tokens: 700,
+  }, { timeout: 20000 });
+  return r.choices?.[0]?.message?.content || '';
+};
+if (prisma.generatedFile) setFileStore(prismaFileStore(prisma));
+else console.warn('[files] GeneratedFile model missing — using in-memory file store. Add prisma/Files.prisma.txt to schema.prisma and run: npx prisma db push');
+app.use('/api/files', filesRouter({ isProd, ensureUser: ensureGuestUser }));   // Phase 5
+app.use('/api/spaces', spacesRouter({ prisma, isProd, ensureUser: ensureGuestUser, llm: spaceGeneratorLlm }));   // Phase 4
+app.use('/api/agent', agentRouter({ gate: agentGate, trust, runs: agentRuns, consent: agentConsent, autonomy: agentAutonomy, conventions, evidence: (a) => skillDecision(prisma, a), buildTurn: agentBuildTurn, saveReply: agentSaveReply, isProd }));
 
 app.post('/api/chat', chatImage, async (req, res) => {
   try {
@@ -2063,6 +2104,7 @@ app.post('/api/chat', chatImage, async (req, res) => {
     // unchanged — just no internal HTTP hop.
     let said;
     let plans = [];
+    let consents = [];
     let conversationId;
     let conversation;
     if (!clean && !req.body?.image) {
@@ -2080,11 +2122,11 @@ app.post('/api/chat', chatImage, async (req, res) => {
         await persistSkillTurn(userId, clean, said, conversationId);
       } else {
         const bf = await runBrainFlow(userId, clean, req.body?.image, { conversationId, conversation });
-        said = bf.said; plans = bf.plans || [];
+        said = bf.said; plans = bf.plans || []; consents = bf.consents || [];
       }
     }
 
-    return res.json({ ok: true, reply: said, said, conversationId, plans });
+    return res.json({ ok: true, reply: said, said, conversationId, plans, consents });
   } catch (e) {
     console.error('/api/chat error:', e);
     res.status(500).json({ ok: false, error: 'chat failed' });
@@ -2160,7 +2202,10 @@ app.post('/api/chat-stream', chatImage, async (req, res) => {
     // message instead of leaving the client waiting forever.
     // ✅ NEW: Expert Mode flag from the client — forwarded straight through
     // to runBrainFlow, which branches internally.
-    const expertMode = req.body?.expertMode === true || req.body?.expertMode === 'true';
+    // Phase 5: asking for an Excel/Word FILE switches Expert Mode on by itself (tools only exist there); the user still approves the plan.
+    const autoDocs = wantsDocFile(clean);
+    const expertMode = req.body?.expertMode === true || req.body?.expertMode === 'true' || autoDocs;
+    if (autoDocs) console.log(`[docs] file request detected → Expert Mode on (user ${userId})`);
 
     // ✅ NEW: Expert Mode gets a longer ceiling — a multi-hop tool-calling
     // turn (web_fetch, code_analysis, etc. across up to 5 hops) can
@@ -2168,7 +2213,7 @@ app.post('/api/chat-stream', chatImage, async (req, res) => {
     // call. Normal chat keeps the original 25s unchanged.
     const brainTimeoutMs = (expertMode || workModeFor(conversation)) ? 90000 : 25000;
 
-    const { said, plans } = await withFallbackTimeout(
+    const { said, plans, consents } = await withFallbackTimeout(
       runBrainFlow(userId, clean, req.body?.image, {
         onToken: (delta) => { if (!closed) send('chunk', { delta }); },
         expertMode,
@@ -2181,6 +2226,7 @@ app.post('/api/chat-stream', chatImage, async (req, res) => {
 
     console.log(`[chat-stream] reply ready (${String(said || '').length} chars)${req.body?.image ? ' [image turn]' : ''}`);
     for (const p of (plans || [])) if (!closed) send('plan', p);   // Approve / Reject card in the chat
+    for (const c of (consents || [])) if (!closed) send('consent', c);   // "May SHERZ read this folder?" card
     if (!closed) send('done', { text: said, conversationId });
 
   } catch (e) {

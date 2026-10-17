@@ -12,6 +12,8 @@
  * - toneWeights bo‘lsa: tone tanlashda weight hisobga olinadi
  */
 
+import { buildCuriosity } from './curiosity.js';
+
 const DEFAULTS = {
   quietHours: { start: 23, end: 7 },
   cooldownMin: 90,
@@ -303,7 +305,7 @@ if (signals.activity?.typicalHour != null && signals.activity.typicalHourConfide
     }
   }
 
-  const shouldMessage = score >= 1;
+  const shouldMessage = score >= 3; // ✅ FIX: was >= 1 (30 min idle alone triggered); the log text below always said >=3
 
   if (!shouldMessage) {
     return { shouldMessage: false, reason: `Score ${score}/>=3. ${reasons.join(' ')}` };
@@ -318,12 +320,17 @@ if (signals.activity?.typicalHour != null && signals.activity.typicalHourConfide
   const length = lengthFromSignals({ idleMin: signals.idleMin, emotion });
 
   // ✅ LAB5: policy snapshot ham qaytaramiz (runner/log uchun foydali)
+  // Phase 5b: character — decide whether this check-in is curious (own question / thought) or plain; gating above is unchanged
+  const { intent, curiosity } = buildCuriosity({ emotion, config: cfg, random: cfg.random || Math.random });
+
   return {
     shouldMessage: true,
     reason: `Score ${score}. ${reasons.join(' ')}`,
     tone,
     length,
     emotion,
+    intent,
+    curiosity,
     policy: adaptive
       ? {
           cooldownMinutes: adaptive.cooldownMinutes ?? null,

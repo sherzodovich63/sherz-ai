@@ -1163,15 +1163,21 @@ removeBtn.addEventListener("click", () => {
   const oauthToken = params.get('token');
   const authError  = params.get('auth_error');
   if (oauthToken) {
+    // index.html reads the account token from 'sherz_token' — writing only 'token' left the user a Guest.
+    localStorage.setItem('sherz_token', oauthToken);
     localStorage.setItem('token', oauthToken);
     // Decode user from JWT payload and store for getCurrentUserId()
     try {
-      const payload = JSON.parse(atob(oauthToken.split('.')[1]));
+      const payload = JSON.parse(atob(oauthToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
       localStorage.setItem('sherz_user', JSON.stringify({ id: payload.id, email: payload.email, name: payload.name }));
+      if (payload.name)  localStorage.setItem('sherz_user_name', payload.name);
+      if (payload.email) localStorage.setItem('sherz_user_email', payload.email);
       console.log('✅ Google login successful, user:', payload.name || payload.email);
     } catch {}
     // Clean URL without reloading
     window.history.replaceState({}, document.title, window.location.pathname);
+    // If the page already booted as a guest before this ran, restart it once so it picks up the account.
+    if (!(window.__sherzAuth && window.__sherzAuth.isAuthenticated && window.__sherzAuth.isAuthenticated())) window.location.reload();
   }
   if (authError) {
     console.error('❌ Google auth error:', decodeURIComponent(authError));

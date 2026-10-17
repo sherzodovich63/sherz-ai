@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -107,7 +107,7 @@ test('HTTP: propose → pending → edit → approve; dev fallback user; bad inp
   const { gate } = mk(); const app = express(); app.use(express.json());
   app.use((req, _r, n) => { const u = req.headers['x-user']; if (u) req.user = { id: u }; n(); });
   app.use('/api/agent', agentRouter({ gate, isProd: false }));
-  const s = app.listen(0); const base = `http://localhost:${s.address().port}/api/agent`;
+  const s = app.listen(0); after(() => s.close()); const base = `http://localhost:${s.address().port}/api/agent`;
   const call = async (p, m = 'GET', b, user = 'http1') => { const r = await fetch(base + p, { method: m, headers: { 'content-type': 'application/json', 'x-user': user }, body: b ? JSON.stringify(b) : undefined }); return { s: r.status, j: await r.json() }; };
   const p = await call('/propose', 'POST', { title: 'T', steps: [note('k.md', 'v1')] });
   assert.equal(p.s, 201);
@@ -118,7 +118,8 @@ test('HTTP: propose → pending → edit → approve; dev fallback user; bad inp
   const ap = await call(`/${p.j.action.id}/approve`, 'POST', { planHash: e.j.action.planHash });
   assert.equal(ap.s, 200); assert.equal(ap.j.action.status, 'executed');
   assert.equal((await call('/propose', 'POST', { title: 'T', steps: [{ tool: 'nope' }] })).s, 400);
-  assert.equal((await call('/tools')).j.tools.length, 3);
+  const tl = (await call('/tools')).j.tools; assert.equal(tl.length, 15);
+  assert.deepEqual(tl.filter((t) => t.target === 'helper').map((t) => t.name).sort(), ['files.delete', 'files.list', 'files.mkdir', 'files.move', 'files.read', 'files.write']);
   // dev fallback: no req.user → ?userId / 'u1'
   const r = await fetch(base + '/pending?userId=zed'); assert.equal(r.status, 200);
   s.close();

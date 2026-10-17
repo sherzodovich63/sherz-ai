@@ -1,0 +1,20 @@
+// Add to prisma/schema.prisma, then run:  npx prisma db push
+//
+// 1) inside `model User { ... }` add this line:
+//      generatedFiles GeneratedFile[]
+//
+// 2) add this model:
+model GeneratedFile {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  mime      String
+  size      Int
+  source    String   @default("generated")   // generated | uploaded
+  bytes     Bytes
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}

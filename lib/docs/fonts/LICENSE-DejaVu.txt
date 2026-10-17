@@ -1,0 +1,4 @@
+DejaVu fonts (DejaVuSans, -Bold, -Oblique, -BoldOblique) are Copyright (c) Bitstream, Inc. and the DejaVu authors.
+They are free fonts under the Bitstream Vera / DejaVu licence, which allows use, copying and redistribution
+(including embedding in generated documents). Full text: https://dejavu-fonts.github.io/License.html
+They are bundled so PDFs can show Uzbek (oʻ gʻ), Cyrillic and Latin-extended text; the PDF built-in fonts cannot.

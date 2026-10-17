@@ -1221,7 +1221,7 @@ html.platform-ios body {
       <aside id="leftPanel" class="side side-menu" aria-label="Conversations">
         <div class="menu-inner">
           <div class="menu-head">
-            <div class="menu-title">Workspace</div>
+            <div class="menu-title">Menu</div>
             <button class="panel-close" type="button" aria-label="Close menu">✕</button>
           </div>
 
@@ -1230,6 +1230,26 @@ html.platform-ios body {
             <span class="mc-text"><span class="mc-name">Companion</span><span id="companionSub" class="mc-sub">Your personal thread · always here</span></span>
             <span class="mc-badge" aria-hidden="true">∞</span>
           </button>
+
+          <section id="spaceHub" class="space-hub" aria-label="Work Spaces" hidden>
+            <div class="hub-eyebrow-row"><span class="hub-eyebrow">Work</span><span id="spaceCount" class="hub-count">0</span></div>
+            <button id="hubCard" class="hub-card" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="spaceMenu">
+              <span id="hubAvatar" class="hub-avatar" aria-hidden="true">✦</span>
+              <span class="hub-text">
+                <span id="hubName" class="hub-name">Choose a Work Space</span>
+                <span id="hubSub" class="hub-sub">A job profile with its own rules and skills</span>
+              </span>
+              <span class="hub-chev" aria-hidden="true">▾</span>
+            </button>
+            <div id="hubActions" class="hub-actions" hidden>
+              <button id="hubSkills" class="hub-chip" type="button">★ Skills <span id="hubSkillCount" class="hub-chip-n">0</span></button>
+              <button id="hubEdit" class="hub-chip" type="button">Edit profile</button>
+            </div>
+            <div id="spaceMenu" class="hub-menu" role="listbox" aria-label="Your Work Spaces" hidden>
+              <div id="spaceList" class="hub-list"></div>
+              <button id="newSpaceBtn" class="hub-create" type="button"><span class="hub-create-plus" aria-hidden="true">+</span><span><b>Create a Work Space</b><small>Pick a role or describe yours</small></span></button>
+            </div>
+          </section>
 
           <div class="menu-section">
             <span class="menu-section-title">Projects</span>
@@ -1397,7 +1417,63 @@ html.platform-ios body {
 
     </div>
 
-  <script>
+  <div id="spaceModal" class="sp-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="spTitle">
+  <div class="sp-sheet">
+    <header class="sp-head"><h2 id="spTitle">New Work Space</h2><button id="spClose" class="sp-x" type="button" aria-label="Close">✕</button></header>
+    <div class="sp-tabs" role="tablist">
+      <button id="spTabProfile" class="on" type="button" role="tab" data-tab="profile">Profile</button>
+      <button id="spTabSkills" type="button" role="tab" data-tab="skills">Skills</button>
+    </div>
+    <form id="spProfile" class="sp-body" autocomplete="off">
+      <div id="spStart">
+        <section class="sp-gen">
+          <label class="sp-label" for="spDesc">Describe your role</label>
+          <div class="sp-gen-row">
+            <input id="spDesc" class="pf-input" maxlength="300" placeholder="e.g. customs broker, ward nurse, wedding photographer…" spellcheck="false">
+            <button id="spGenerate" class="sp-gen-btn" type="button">✨ Generate</button>
+          </div>
+          <div id="spGenNote" class="sp-note" role="status" aria-live="polite"></div>
+        </section>
+        <div class="sp-or"><span>or pick a role</span></div>
+        <div id="spCats" class="sp-cats" role="tablist" aria-label="Role categories"></div>
+        <div id="spRoles" class="sp-roles"></div>
+      </div>
+      <label class="sp-label" for="spName">Name</label>
+      <input id="spName" class="pf-input" maxlength="60" placeholder="Name of this Work Space" spellcheck="false">
+      <label class="sp-label" for="spRole">Role <span class="pf-opt">what SHERZ acts as</span></label>
+      <input id="spRole" class="pf-input" maxlength="160" placeholder="e.g. Customs clearance assistant" spellcheck="false">
+      <label class="sp-label" for="spInstr">Instructions <span class="pf-opt">your rules for this Space</span></label>
+      <textarea id="spInstr" class="pf-input sp-ta" maxlength="2000" rows="6" placeholder="How should SHERZ work here? Formats, rules, things to never do…"></textarea>
+      <div id="spMeter" class="sp-meter" aria-live="polite"></div>
+      <div class="sp-label" id="spStyleLabel">Work style</div>
+      <input id="spStyle" type="hidden" value="general">
+      <div id="spStyles" class="sp-styles" role="radiogroup" aria-labelledby="spStyleLabel"></div>
+      <div id="spError" class="pf-error" role="alert" hidden></div>
+      <div class="pf-actions">
+        <button id="spSave" class="pf-create" type="submit">Create Work Space</button>
+        <button id="spCancel" class="pf-cancel" type="button">Cancel</button>
+      </div>
+      <div id="spDanger" class="sp-danger" hidden>
+        <button id="spArchive" class="pf-cancel" type="button">Archive</button>
+        <button id="spDelete" class="pf-cancel sp-del" type="button">Delete forever</button>
+      </div>
+    </form>
+    <div id="spSkills" class="sp-body" hidden>
+      <p class="sp-hint">Skills are procedures you teach this Space. SHERZ uses the ones that match your message. Levels come from your approvals, never from SHERZ’s own opinion.</p>
+      <div id="spSkillList" class="sp-skill-list"></div>
+      <form id="spSkillForm" class="sp-skill-form" autocomplete="off">
+        <div class="sp-label" id="spSkillFormTitle">Teach a skill</div>
+        <input id="skName" class="pf-input" maxlength="80" placeholder="Skill name, e.g. Weekly report" spellcheck="false">
+        <input id="skSummary" class="pf-input" maxlength="200" placeholder="One line: when to use it" spellcheck="false">
+        <textarea id="skBody" class="pf-input sp-ta" maxlength="1500" rows="5" placeholder="Steps, one per line"></textarea>
+        <input id="skTriggers" class="pf-input" placeholder="Trigger words, comma separated (optional)" spellcheck="false">
+        <div id="skError" class="pf-error" role="alert" hidden></div>
+        <div class="pf-actions"><button id="skSave" class="pf-create" type="submit">Save skill</button><button id="skCancel" class="pf-cancel" type="button" hidden>Cancel edit</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
   (function(){
     // ✅ $ defined first, function-scoped to this block only — must not leak
     // as a shared global lexical binding (it would otherwise shadow
@@ -2091,6 +2167,11 @@ html.platform-ios body {
       const ta = $('text');
       let msg = ta.value.trim();
       let expert = false;
+      if (/^\/helper\b/i.test(msg)){ ta.value = ''; helperCommand(); return; }
+      if (/^\/habits\b/i.test(msg)){ ta.value = ''; habitsCommand(); return; }
+      if (/^\/autonomy\b/i.test(msg)){ ta.value = ''; autonomyCommand(); return; }
+      if (/^\/rules\b/i.test(msg)){ ta.value = ''; rulesCommand(); return; }
+      if (/^\/files\b/i.test(msg)){ ta.value = ''; filesCommand(); return; }
       const slash = /^\/agent\b\s*/i.exec(msg);                  // "/agent make a note called ideas.md …"
       if (slash){ expert = true; msg = msg.slice(slash[0].length).trim(); }
       if (!msg && !file) return;
@@ -2184,6 +2265,271 @@ html.platform-ios body {
     // 🛡️ Agent plan cards — Execution Plan + [ Approve & Execute ] / [ Reject / Edit ]
     // Nothing runs until the user presses Approve; the server enforces it (planHash + atomic claim).
     // =========================
+
+    // =========================
+    // 💻 Helper — small program on the user's own computer that performs approved file actions.
+    // "/helper" → status, or a one-time pairing code + the single command to start it.
+    // =========================
+    function helperBubble(html){
+      const el = document.createElement('div');
+      el.className = 'bubble ai helper-card';
+      el.innerHTML = html;
+      feed.appendChild(el);
+      feed.scrollTop = feed.scrollHeight;
+      return el;
+    }
+    async function helperCommand(){
+      const st = await fetchWithAuth(apiUrl('/api/helper/status')).then(async (r)=>({ ok:r.ok, j: await r.json().catch(()=>({})) })).catch(()=>({ ok:false, j:{} }));
+      const d = st.ok ? (st.j.devices || []).find((x)=>x.online) : null;
+      if (d){
+        helperBubble(`<div class="plan-head"><span class="plan-title">💻 Helper connected</span><span class="plan-chip risk-low">Online</span></div><div class="plan-note">${esc(d.name || 'Your computer')} is ready. Try: <code>/agent list the files in my folder</code></div>`);
+        return;
+      }
+      const r = await fetchWithAuth(apiUrl('/api/helper/pair-code'), { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' })
+        .then(async (x)=>({ ok:x.ok, j: await x.json().catch(()=>({})) })).catch(()=>({ ok:false, j:{} }));
+      if (!r.ok || !r.j.code){
+        helperBubble(`<div class="plan-err">Could not create a pairing code${r.j && r.j.error ? ': ' + esc(r.j.error) : ''}. Please sign in and try again.</div>`);
+        return;
+      }
+      const origin = (CONFIG.API_URL || location.origin).replace(/\/$/, '');
+      const cmd = `node sherz-helper.mjs --server ${origin} --folder "C:\\SherzFiles" --code ${r.j.code}`;
+      helperBubble(`<div class="plan-head"><span class="plan-title">💻 Connect your computer</span><span class="plan-chip risk-medium">Code valid 10 min</span></div>
+        <ol class="plan-steps"><li class="plan-step"><span class="plan-n">1</span><div class="plan-step-main"><div class="plan-sum">Open a terminal in the folder that contains <code>sherz-helper.mjs</code> (Node 18+ required).</div></div></li>
+        <li class="plan-step"><span class="plan-n">2</span><div class="plan-step-main"><div class="plan-sum">Run this command (change the folder to the one Sherz may use):</div><pre class="helper-cmd">${esc(cmd)}</pre><button class="plan-btn" data-copy="${esc(cmd).replaceAll('"', '&quot;')}">Copy command</button></div></li></ol>
+        <div class="plan-note">Sherz can only touch that one folder. Deleted or replaced files go to <code>.sherz-trash</code> inside it. Every action still needs your approval.</div>`);
+    }
+    document.addEventListener('click', (e)=>{
+      const b = e.target.closest && e.target.closest('[data-copy]');
+      if (!b) return;
+      const t = b.getAttribute('data-copy');
+      (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(()=>{ b.textContent = 'Copied ✓'; }, ()=>{ b.textContent = 'Select and copy manually'; });
+    });
+
+
+    // =========================
+    // 🧠 Habits (Phase 2) — what SHERZ has learned from the plans you approved / edited / rejected.
+    // "/habits" lists it; the user can forget one habit or all of them. Learning never skips an approval.
+    // =========================
+    const HABIT_TXT = { high:'High confidence', medium:'Growing confidence', low:'Learning' };
+    async function consentsHtml(){
+      const r = await agentCall('/consents', 'GET'); const list = (r.ok && r.j.consents) || [];
+      if (!list.length) return '<div class="plan-note consents-sec">Folders SHERZ may read: none yet — it asks once per folder.</div>';
+      return `<div class="plan-note consents-sec"><b>Folders SHERZ may read</b></div><ul class="consent-list">${list.map((f)=>`<li><code>${f === '.' ? 'whole shared folder' : esc(f)}</code> <button class="plan-btn danger" data-revoke="${esc(f)}">Revoke</button></li>`).join('')}</ul>`;
+    }
+    document.addEventListener('click', async (e)=>{
+      const b = e.target.closest && e.target.closest('[data-revoke]'); if (!b) return;
+      b.disabled = true;
+      const r = await agentCall('/consents?folder=' + encodeURIComponent(b.getAttribute('data-revoke')), 'DELETE');
+      if (r.ok){ const li = b.closest('li'); li && li.remove(); } else b.disabled = false;
+    });
+    async function habitsCommand(){
+      const r = await agentCall('/habits', 'GET');
+      const el = document.createElement('div'); el.className = 'bubble ai helper-card habits-card';
+      feed.appendChild(el);
+      const hs = (r.ok && r.j.habits || []).filter((h)=>h.level || h.approvals || h.rejections || h.corrected);
+      if (!r.ok){ el.innerHTML = '<div class="plan-err">Could not load your habits. Please sign in and try again.</div>'; return; }
+      if (!hs.length){ el.innerHTML = '<div class="plan-head"><span class="plan-title">🧠 Habits</span></div><div class="plan-note">Nothing learned yet. As you approve, edit or reject plans, SHERZ learns how you like things done.</div>' + await consentsHtml(); feed.scrollTop = feed.scrollHeight; return; }
+      const row = (h)=>{
+        const what = `${h.tool}${h.ext ? ' · ' + h.ext : ''}${h.dir ? ' · ' + h.dir + '/' : ''}`;
+        const redir = h.redirectTo ? ` · you usually change it to <code>${esc(String(h.redirectTo).replace('|', ' '))}</code>` : '';
+        return `<li class="plan-step"><div class="plan-step-main"><div class="plan-sum"><code>${esc(what)}</code></div>
+          <div class="plan-meta">${h.level ? `<span class="plan-chip habit habit-${esc(h.level)}">🧠 ${esc(HABIT_TXT[h.level])}</span>` : '<span class="plan-chip">Not enough data yet</span>'}<span class="plan-note">✓ ${esc(h.approvals + h.preferred)} · ✗ ${esc(h.rejections)}${redir}</span>
+          <button class="plan-btn danger" data-forget="${esc(h.id)}">Forget</button></div></div></li>`;
+      };
+      el.innerHTML = `<div class="plan-head"><span class="plan-title">🧠 What SHERZ learned about your habits</span><button class="plan-btn danger" data-forget-all="1">Forget all</button></div>
+        <ol class="plan-steps">${hs.map(row).join('')}</ol><div class="plan-note">Only patterns (tool, folder, file type) are stored — never file contents. Habits shape suggestions; every action still needs your approval.</div>`;
+      el.insertAdjacentHTML('beforeend', await consentsHtml());
+      feed.scrollTop = feed.scrollHeight;
+    }
+    document.addEventListener('click', async (e)=>{
+      const b = e.target.closest && e.target.closest('[data-forget],[data-forget-all]');
+      if (!b) return;
+      b.disabled = true;
+      const all = b.hasAttribute('data-forget-all');
+      const r = await agentCall(all ? '/habits' : '/habits/' + encodeURIComponent(b.getAttribute('data-forget')), 'DELETE');
+      const card = b.closest('.habits-card');
+      if (r.ok && card){ if (all) card.innerHTML = '<div class="plan-head"><span class="plan-title">🧠 Habits</span></div><div class="plan-note">Forgotten. SHERZ starts learning from scratch.</div>'; else { const li = b.closest('li'); li && li.remove(); if (!card.querySelector('li')) card.innerHTML = '<div class="plan-head"><span class="plan-title">🧠 Habits</span></div><div class="plan-note">Nothing learned.</div>'; } }
+      else b.disabled = false;
+    });
+
+
+    // =========================
+    // ⚡ Auto-approval (Phase 3c) — "/autonomy". Everything is OFF until you switch a tool on here.
+    // Even when ON, a step only runs without a click if it matches a HIGH-confidence habit inside a folder you allowed
+    // and your helper is online. Anything else still shows the normal Approve button.
+    // =========================
+    const AUTO_TXT = { 'files.list':'List a folder', 'files.read':'Read a file', 'files.mkdir':'Create a folder' };
+    function paintAutonomy(el, s){
+      const rows = Object.keys(s.tools).map((t)=>`<li class="plan-step"><div class="plan-step-main"><div class="plan-sum">${esc(AUTO_TXT[t] || t)} <code>${esc(t)}</code></div>
+        <div class="plan-meta"><span class="plan-chip ${s.tools[t] === 'auto' ? 'habit habit-high' : ''}">${s.tools[t] === 'auto' ? '⚡ Runs automatically (High-confidence habits only)' : 'Asks me every time'}</span>
+        <button class="plan-btn ${s.tools[t] === 'auto' ? 'danger' : 'primary'}" data-auto-tool="${esc(t)}" data-mode="${s.tools[t] === 'auto' ? 'off' : 'auto'}">${s.tools[t] === 'auto' ? 'Turn off' : 'Turn on'}</button></div></div></li>`).join('');
+      el.innerHTML = `<div class="plan-head"><span class="plan-title">⚡ Auto-approval</span><button class="plan-btn danger" data-auto-off="1">Turn all off</button></div>
+        <ol class="plan-steps">${rows}</ol>
+        <div class="plan-note">Limit: <input type="number" min="1" max="60" value="${esc(s.maxPerHour)}" data-auto-cap="1" style="width:4.5em"> automatic runs per hour.</div>
+        <div class="plan-note">Only these low-risk tools can ever be switched on — writing, moving and deleting always need your click. A step runs by itself only when it matches a habit you approved many times, in a folder you allowed, while your helper is connected. You get a notice for every automatic run with a button to stop it. Automatic runs never count as your approval, so they cannot raise their own confidence.</div>`;
+    }
+    async function autonomyCommand(){
+      const el = document.createElement('div'); el.className = 'bubble ai helper-card autonomy-card';
+      feed.appendChild(el);
+      const r = await agentCall('/autonomy', 'GET');
+      if (!r.ok || !r.j.settings){ el.innerHTML = '<div class="plan-err">Auto-approval is not available right now. Please sign in and try again.</div>'; return; }
+      paintAutonomy(el, r.j.settings); feed.scrollTop = feed.scrollHeight;
+    }
+    document.addEventListener('click', async (e)=>{
+      const b = e.target.closest && e.target.closest('[data-auto-tool],[data-auto-off]'); if (!b) return;
+      const card = b.closest('.autonomy-card'); if (!card) return;
+      b.disabled = true;
+      const r = b.hasAttribute('data-auto-off') ? await agentCall('/autonomy/off', 'POST', {}) : await agentCall('/autonomy', 'POST', { tool: b.getAttribute('data-auto-tool'), mode: b.getAttribute('data-mode') });
+      if (r.ok && r.j.settings) paintAutonomy(card, r.j.settings); else b.disabled = false;
+    });
+    document.addEventListener('change', async (e)=>{
+      const i = e.target.closest && e.target.closest('[data-auto-cap]'); if (!i) return;
+      const card = i.closest('.autonomy-card'); if (!card) return;
+      const r = await agentCall('/autonomy', 'POST', { maxPerHour: Number(i.value) });
+      if (r.ok && r.j.settings) paintAutonomy(card, r.j.settings);
+    });
+
+    // =========================
+    // 📌 Conventions (Phase 3d) — "/rules". Pinned rules are written by YOU and beat everything else; the inferred list is
+    // what SHERZ noticed from plans you approved (styles and folders only — never file names or contents).
+    // Both are advice for the AI; they never skip an approval.
+    // =========================
+    function paintRules(el, d){
+      const rules = (d.rules || []).map((r)=>`<li class="plan-step"><div class="plan-step-main"><div class="plan-sum">${esc(r.text)}</div><div class="plan-meta"><button class="plan-btn danger" data-rule-del="${esc(r.id)}">Remove</button></div></div></li>`).join('');
+      const inf = (d.inferred || []).map((x)=>`<li class="plan-step"><div class="plan-step-main"><div class="plan-sum">${esc(x.text)}</div><div class="plan-meta"><span class="plan-note">seen ${esc(x.count)}×</span><button class="plan-btn" data-rule-pin="${esc(x.text)}">Pin as rule</button></div></div></li>`).join('');
+      el.innerHTML = `<div class="plan-head"><span class="plan-title">📌 Your rules</span></div>
+        ${rules ? `<ol class="plan-steps">${rules}</ol>` : '<div class="plan-note">No pinned rules yet. Example: <i>Name files in kebab-case</i> · <i>Reports go in docs/reports</i></div>'}
+        <div class="plan-actions"><input type="text" maxlength="160" placeholder="Write a rule (max 160 characters)" data-rule-input="1" style="flex:1;min-width:12em"><button class="plan-btn primary" data-rule-add="1">Add rule</button></div>
+        ${el._err ? `<div class="plan-err">${esc(el._err)}</div>` : ''}
+        <div class="plan-head" style="margin-top:12px"><span class="plan-title">🧭 What SHERZ noticed</span>${inf ? '<button class="plan-btn danger" data-rule-forget="1">Forget</button>' : ''}</div>
+        ${inf ? `<ol class="plan-steps">${inf}</ol>` : '<div class="plan-note">Nothing yet. After you approve several plans SHERZ notices how you name files and where you keep them.</div>'}
+        <div class="plan-note">Rules and noticed habits only guide how SHERZ proposes things. Every action still needs your approval (or your auto-approval settings in <code>/autonomy</code>). Only styles and folders are stored — never file names or contents.</div>`;
+    }
+    async function rulesReload(el){ const r = await agentCall('/rules', 'GET'); if (r.ok && r.j.available !== false) paintRules(el, r.j); else el.innerHTML = '<div class="plan-err">Rules are not available right now. Please sign in and try again.</div>'; }
+    async function rulesCommand(){
+      const el = document.createElement('div'); el.className = 'bubble ai helper-card rules-card'; feed.appendChild(el);
+      await rulesReload(el); feed.scrollTop = feed.scrollHeight;
+    }
+    document.addEventListener('click', async (e)=>{
+      const b = e.target.closest && e.target.closest('[data-rule-add],[data-rule-del],[data-rule-pin],[data-rule-forget]'); if (!b) return;
+      const card = b.closest('.rules-card'); if (!card) return;
+      b.disabled = true; card._err = ''; let r;
+      if (b.hasAttribute('data-rule-add')){ const i = card.querySelector('[data-rule-input]'); if (!i.value.trim()){ b.disabled = false; return; } r = await agentCall('/rules', 'POST', { text: i.value }); }
+      else if (b.hasAttribute('data-rule-pin')) r = await agentCall('/rules', 'POST', { text: b.getAttribute('data-rule-pin') });
+      else if (b.hasAttribute('data-rule-del')) r = await agentCall('/rules/' + encodeURIComponent(b.getAttribute('data-rule-del')), 'DELETE');
+      else r = await agentCall('/conventions', 'DELETE');
+      if (!r.ok) card._err = (r.j && r.j.error) || 'Could not save.';
+      await rulesReload(card);
+    });
+
+    // =========================
+    // 📄 Files (Phase 5) — "/files". Excel / Word files SHERZ made for you (after you approved the plan) or that you uploaded
+    // so SHERZ can read them. Download goes through your login (blob), never a public link.
+    // =========================
+    const fmtB = (n)=> n < 1024 ? n + ' B' : n < 1048576 ? (n/1024).toFixed(1) + ' KB' : (n/1048576).toFixed(1) + ' MB';
+    function filesFetch(path, opt){ return fetchWithAuth(apiUrl('/api/files' + path), opt || {}); }
+    const fileIcon = (n)=> /\.xlsx$/i.test(n) ? '📊' : /\.pdf$/i.test(n) ? '📕' : /\.pptx$/i.test(n) ? '📽️' : '📝';
+    function paintFiles(el, d){
+      const rows = (d.files || []).map((f)=>`<li class="plan-step"><div class="plan-step-main"><div class="plan-sum">${fileIcon(f.name)} ${esc(f.name)}</div><div class="plan-meta"><span class="plan-note">${esc(fmtB(f.size))} · ${f.source === 'uploaded' ? 'uploaded' : 'made by SHERZ'} · ${esc(new Date(f.createdAt).toLocaleDateString())}</span><button class="plan-btn primary" data-file-dl="${esc(f.id)}" data-file-name="${esc(f.name)}">⬇ Download</button><button class="plan-btn danger" data-file-del="${esc(f.id)}">Delete</button></div></div></li>`).join('');
+      const u = d.usage || { count: 0, bytes: 0 }, q = d.quota || { files: 40, bytes: 60*1048576 };
+      el.innerHTML = `<div class="plan-head"><span class="plan-title">📄 Your files</span><span class="plan-note">${esc(u.count)}/${esc(q.files)} files · ${esc(fmtB(u.bytes))} of ${esc(fmtB(q.bytes))}</span></div>
+        ${rows ? `<ol class="plan-steps">${rows}</ol>` : '<div class="plan-note">No files yet. Ask SHERZ, e.g. <i>“Make an Excel budget for October”</i>, <i>“Write a project brief in Word”</i>, <i>“Make a PDF report”</i> or <i>“Build a 6-slide PowerPoint”</i>. You approve it first, then it appears here.</div>'}
+        <div class="plan-actions"><button class="plan-btn" data-file-up="1">⬆ Upload Excel / Word / PDF / PowerPoint</button><input type="file" data-file-input="1" accept=".xlsx,.docx,.pdf,.pptx" hidden></div>
+        <div class="plan-note">Uploaded files can be read by SHERZ when you ask (“summarise my file budget.xlsx”). Only you can download or delete your files. Max 5 MB each.</div>
+        ${el._err ? `<div class="plan-err">${esc(el._err)}</div>` : ''}`;
+    }
+    async function filesReload(el){
+      try { const r = await filesFetch('/'); const j = await r.json().catch(()=>({})); if (r.ok && j.ok) paintFiles(el, j); else { el.innerHTML = `<div class="plan-err">${esc(j.error || 'Files are not available right now. Please sign in and try again.')}</div>`; } }
+      catch (e) { el.innerHTML = '<div class="plan-err">Files are not available right now.</div>'; }
+    }
+    async function filesCommand(){
+      const el = document.createElement('div'); el.className = 'bubble ai helper-card files-card'; feed.appendChild(el);
+      await filesReload(el); feed.scrollTop = feed.scrollHeight;
+    }
+    async function fileDownload(btn){
+      const id = btn.getAttribute('data-file-dl'), name = btn.getAttribute('data-file-name') || 'file';
+      btn.disabled = true;
+      try {
+        const r = await filesFetch('/' + encodeURIComponent(id) + '/download');
+        if (!r.ok) throw new Error('not found');
+        const url = URL.createObjectURL(await r.blob()), a = document.createElement('a');
+        a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url), 4000);
+      } catch (e) { btn.textContent = 'Download failed — it may have been deleted'; return; }
+      btn.disabled = false;
+    }
+    document.addEventListener('click', async (e)=>{
+      const b = e.target.closest && e.target.closest('[data-file-dl],[data-file-del],[data-file-up]'); if (!b) return;
+      if (b.hasAttribute('data-file-dl')) return fileDownload(b);
+      const card = b.closest('.files-card'); if (!card) return;
+      if (b.hasAttribute('data-file-up')) { const i = card.querySelector('[data-file-input]'); return i && i.click(); }
+      b.disabled = true; card._err = '';
+      const r = await filesFetch('/' + encodeURIComponent(b.getAttribute('data-file-del')), { method: 'DELETE' });
+      if (!r.ok) card._err = 'Could not delete the file.';
+      await filesReload(card);
+    });
+    document.addEventListener('change', async (e)=>{
+      const i = e.target.closest && e.target.closest('[data-file-input]'); if (!i || !i.files || !i.files[0]) return;
+      const card = i.closest('.files-card'), f = i.files[0]; card._err = '';
+      if (f.size > 5 * 1048576) card._err = 'That file is bigger than 5 MB.';
+      else {
+        try {
+          const r = await filesFetch('/upload', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': encodeURIComponent(f.name) }, body: await f.arrayBuffer() });
+          const j = await r.json().catch(()=>({})); if (!r.ok) card._err = j.error || 'Upload failed.';
+        } catch (err) { card._err = 'Upload failed.'; }
+      }
+      await filesReload(card);
+    });
+    document.addEventListener('keydown', (e)=>{ if (e.key === 'Enter' && e.target && e.target.matches && e.target.matches('[data-rule-input]')){ e.preventDefault(); const b = e.target.closest('.rules-card').querySelector('[data-rule-add]'); b && b.click(); } });
+
+    // =========================
+    // 🔁 Phase 3 — the task loop. After a plan ran (or a folder was allowed) SHERZ gets one more turn: it sees the
+    // results — including failures — and either finishes, asks to read more, or proposes the NEXT / a CORRECTED plan.
+    // Every state-changing plan still needs its own Approve. Reading needs a one-time per-folder permission.
+    // =========================
+    function agentNotice(text){
+      const el = document.createElement('div'); el.className = 'bubble ai helper-card';
+      el.innerHTML = `<div class="plan-note">${esc(text)}</div>`;
+      feed.appendChild(el); feed.scrollTop = feed.scrollHeight;
+    }
+    const taskBusy = new Set();
+    async function continueTask(runId, reason){
+      if (!runId || taskBusy.has(runId)) return;
+      taskBusy.add(runId); showTyping();
+      let r;
+      try{ r = await agentCall(`/runs/${encodeURIComponent(runId)}/continue`, 'POST', { reason }); }
+      catch(e){ r = { ok:false, j:{ error:'Network error' } }; }
+      hideTyping(); taskBusy.delete(runId);
+      if (!r.ok){ agentNotice('Could not continue the task: ' + ((r.j && r.j.error) || 'unknown error') + '.'); return; }
+      if (r.j.text) await addAiTypewriter(r.j.text);
+      (r.j.plans || []).forEach(renderPlanCard);
+      (r.j.consents || []).forEach(renderConsentCard);
+    }
+    const consentCards = new Set();
+    function renderConsentCard(c){
+      if (!c || !c.runId) return;
+      const key = c.runId + '|' + c.folder; if (consentCards.has(key)) return; consentCards.add(key);
+      const whole = c.folder === '.';
+      const el = document.createElement('div'); el.className = 'bubble ai plan-card consent-card'; el.dataset.status = 'pending';
+      el.innerHTML = `<div class="plan-head"><span class="plan-title">🔒 Allow SHERZ to read ${whole ? 'your whole shared folder' : 'the folder <code>' + esc(c.folder) + '</code>'}?</span><span class="plan-chip risk-low">Read only</span></div>
+        <div class="plan-note">To plan better, SHERZ wants to look at file names and contents there. That text is sent to the AI service while it works on this task. It cannot change anything without your approval of a plan. You can take this back any time in <code>/habits</code>.${whole ? ' <b>This covers every folder inside the shared folder.</b>' : ' Covers sub-folders too.'}</div>
+        <div class="plan-actions"><button class="plan-btn primary" data-consent="allow">Allow this folder</button><button class="plan-btn" data-consent="deny">No thanks</button></div>`;
+      el._c = c; feed.appendChild(el); feed.scrollTop = feed.scrollHeight;
+    }
+    feed.addEventListener('click', async (ev)=>{
+      const b = ev.target.closest && ev.target.closest('.consent-card [data-consent]');
+      if (!b || b.disabled) return;
+      const el = b.closest('.consent-card'), c = el._c; el.querySelectorAll('button').forEach((x)=>{ x.disabled = true; });
+      if (b.dataset.consent === 'deny'){
+        await agentCall(`/runs/${encodeURIComponent(c.runId)}/stop`, 'POST', {});
+        el.querySelector('.plan-actions').outerHTML = '<div class="plan-banner st-rejected">Not allowed — nothing was read</div>';
+        return;
+      }
+      const r = await agentCall('/consents', 'POST', { folder: c.folder, runId: c.runId });
+      if (!r.ok){ el.querySelectorAll('button').forEach((x)=>{ x.disabled = false; }); const n = el.querySelector('.plan-note'); n.insertAdjacentHTML('afterend', `<div class="plan-err">${esc((r.j && r.j.error) || 'Could not save the permission.')}</div>`); return; }
+      el.querySelector('.plan-actions').outerHTML = `<div class="plan-banner st-executed">✓ Allowed ${c.folder === '.' ? 'the whole shared folder' : esc(c.folder)}</div>`;
+      if (r.j.canContinue) continueTask(c.runId, 'consent');
+    });
+
     const planCards = new Map();
     function agentCall(path, method, body){
       return fetchWithAuth(apiUrl('/api/agent' + path), { method: method || 'GET', headers: {'Content-Type':'application/json'}, body: body ? JSON.stringify(body) : undefined })
@@ -2194,9 +2540,16 @@ html.platform-ios body {
       if (!o) return '';
       if (o.filename && typeof o.bytes === 'number') return `${o.overwritten ? 'Updated' : 'Saved'} ${o.filename} (${o.bytes} B)`;
       if (o.deleted) return `Deleted ${o.filename}`;
+      if (Array.isArray(o.entries)) return o.entries.length ? o.entries.map((e)=>e.name + (e.type === 'dir' ? '/' : '')).join(', ') : `${o.path} is empty`;
+      if (typeof o.content === 'string') return o.content.length > 300 ? o.content.slice(0,300) + '…' : o.content;
+      if (o.movedTo) return `Moved to trash (${o.movedTo})`;
+      if (o.from && o.to) return `${o.from} → ${o.to}`;
+      if (o.created) return `Created ${o.path}`;
+      if (o.path && typeof o.bytes === 'number') return `${o.overwritten ? 'Updated' : 'Wrote'} ${o.path} (${o.bytes} B)`;
       if (Array.isArray(o.files)) return o.files.length ? o.files.join(', ') : 'no notes yet';
       const t = JSON.stringify(o); return t.length > 140 ? t.slice(0,140) + '…' : t;
     }
+    const autoSeen = new Set();
     function renderPlanCard(plan){
       if (!plan || !plan.id) return;
       let el = planCards.get(plan.id);
@@ -2208,6 +2561,11 @@ html.platform-ios body {
         feed.appendChild(el);
       }
       el._plan = plan;
+      if (plan.auto && plan.run && !autoSeen.has(plan.id)){                   // Phase 3c: it already ran by itself — the task may want a follow-up turn
+        autoSeen.add(plan.id);
+        if (plan.run.canContinue) setTimeout(()=>continueTask(plan.run.id, 'result'), 0);
+        else if (plan.run.notice) agentNotice(plan.run.notice);
+      }
       if (!el._busy) el._edit = el._edit && plan.status === 'pending';
       paintPlan(el);
       feed.scrollTop = feed.scrollHeight;
@@ -2225,15 +2583,20 @@ html.platform-ios body {
         return `<li class="plan-step ${r ? 'is-' + r.status : ''}">
           <span class="plan-n">${mark}</span>
           <div class="plan-step-main"><div class="plan-sum">${esc(s.summary || s.tool)}</div>
-          <div class="plan-meta"><code>${esc(s.tool)}</code><span class="plan-chip risk-${esc(s.risk)}">${esc(RISK_TXT[s.risk] || s.risk)}</span>${s.reversible ? '' : '<span class="plan-chip irrev">Cannot be undone</span>'}</div>
-          ${body}${out ? `<div class="plan-out">${esc(out)}</div>` : ''}</div></li>`;
+          <div class="plan-meta"><code>${esc(s.tool)}</code><span class="plan-chip risk-${esc(s.risk)}">${esc(RISK_TXT[s.risk] || s.risk)}</span>${s.target === 'helper' ? '<span class="plan-chip on-pc">Runs on your computer</span>' : ''}${s.habit ? `<span class="plan-chip habit habit-${esc(s.habit.level)}" title="You approved this kind of step ${esc(s.habit.count)}× before">🧠 ${esc(s.habit.label)}</span>` : ''}${s.reversible ? '' : '<span class="plan-chip irrev">Cannot be undone</span>'}</div>
+          ${body}${out ? `<div class="plan-out">${esc(out)}</div>` : ''}${r && r.status === 'ok' && r.output && r.output.fileId ? `<div class="plan-meta"><button class="plan-btn primary" data-file-dl="${esc(r.output.fileId)}" data-file-name="${esc(r.output.filename || 'file')}">⬇ Download ${esc(r.output.filename || '')}</button></div>` : ''}</div></li>`;
       }).join('');
       let foot = '', banner = '';
       if (el._busy) foot = '<div class="plan-note">Running…</div>';
       else if (pending && el._edit) foot = `<div class="plan-actions"><button class="plan-btn primary" data-act="save">Save changes</button><button class="plan-btn" data-act="cancel">Cancel</button></div>${el._err ? `<div class="plan-err">${esc(el._err)}</div>` : ''}`;
-      else if (pending) foot = `<div class="plan-actions"><button class="plan-btn primary" data-act="approve">Approve &amp; Execute</button><button class="plan-btn" data-act="edit">Edit</button><button class="plan-btn danger" data-act="reject">Reject</button></div><div class="plan-note">Nothing runs until you approve. Expires ${new Date(p.expiresAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}.${p.edited ? ' You edited this plan.' : ''}</div>${el._err ? `<div class="plan-err">${esc(el._err)}</div>` : ''}`;
+      else if (pending) foot = `<div class="plan-actions"><button class="plan-btn primary" data-act="approve">Approve &amp; Execute</button>${p.offer && p.offer.tools && p.offer.tools.length ? '<button class="plan-btn" data-act="approve-always" title="Approve this plan and let SHERZ run this kind of step by itself once the habit reaches High confidence">Approve &amp; always allow</button>' : ''}<button class="plan-btn" data-act="edit">Edit</button><button class="plan-btn danger" data-act="reject">Reject</button></div><div class="plan-note">Nothing runs until you approve${p.habit ? ' — a learned habit never skips this' : ''}. Expires ${new Date(p.expiresAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}.${p.edited ? ' You edited this plan.' : ''}</div>${el._err ? `<div class="plan-err">${esc(el._err)}</div>` : ''}`;
       else banner = { executed:'✓ Executed', failed:'✗ Stopped — a step failed', rejected:'Rejected — nothing was run', expired:'Expired — nothing was run' }[p.status] || p.status;
-      el.innerHTML = `<div class="plan-head"><span class="plan-title">🛡️ ${esc(p.title || 'Execution plan')}</span><span class="plan-chip risk-${esc(p.risk)}">${esc(RISK_TXT[p.risk] || p.risk)}</span></div>
+      if (p.auto && (p.status === 'executed' || p.status === 'failed')){
+        const lv = (p.auto.basis || []).map((b)=>b.count).filter(Boolean); const n = lv.length ? Math.min.apply(null, lv) : 0;
+        banner = (p.status === 'executed' ? '⚡ Ran automatically' : '⚡ Ran automatically — a step failed') + (n ? ` — you approved this kind of step ${n}× before` : '');
+        foot = `<div class="plan-actions"><button class="plan-btn danger" data-act="auto-stop">Stop doing this automatically</button>${p.auto.undoable ? '<button class="plan-btn" data-act="auto-undo">Undo (asks first)</button>' : ''}</div>${el._note ? `<div class="plan-note">${esc(el._note)}</div>` : ''}${el._err ? `<div class="plan-err">${esc(el._err)}</div>` : ''}`;
+      }
+      el.innerHTML = `<div class="plan-head"><span class="plan-title">🛡️ ${esc(p.title || 'Execution plan')}</span>${p.habit ? `<span class="plan-chip habit habit-${esc(p.habit.level)}">🧠 ${esc(p.habit.label)}</span>` : ''}<span class="plan-chip risk-${esc(p.risk)}">${esc(RISK_TXT[p.risk] || p.risk)}</span></div>
         <ol class="plan-steps">${steps}</ol>${banner ? `<div class="plan-banner st-${esc(p.status)}">${banner}</div>` : ''}${foot}`;
       el._raw = `${p.title || 'Execution plan'}\n` + (p.steps || []).map((s, i)=>`${i + 1}. ${s.summary || s.tool}`).join('\n');
     }
@@ -2260,7 +2623,25 @@ html.platform-ios body {
         if (r.ok && r.j.action) el._plan = r.j.action; else el._err = r.j.error || 'Could not reject.';
         return paintPlan(el);
       }
-      if (act === 'approve'){
+      if (act === 'auto-stop'){
+        const tools = [...new Set((p.steps || []).map((x)=>x.tool))]; el._busy = true; paintPlan(el);
+        let ok = true; for (const t of tools){ const r = await agentCall('/autonomy', 'POST', { tool: t, mode: 'off' }); if (!r.ok) ok = false; }
+        el._busy = false; el._note = ok ? 'Done — these steps will ask for your approval again. You can change this any time with /autonomy.' : ''; el._err = ok ? '' : 'Could not change the setting.';
+        return paintPlan(el);
+      }
+      if (act === 'auto-undo'){
+        el._busy = true; paintPlan(el);
+        const r = await agentCall(`/${encodeURIComponent(p.id)}/undo`, 'POST', {});
+        el._busy = false;
+        if (r.ok && r.j.action){ el._plan = { ...p, auto: { ...p.auto, undoable: false } }; el._note = 'An undo plan is waiting for your approval below.'; renderPlanCard(r.j.action); }
+        else el._err = (r.j && r.j.error) || 'Could not prepare the undo.';
+        return paintPlan(el);
+      }
+      if (act === 'approve' || act === 'approve-always'){
+        if (act === 'approve-always'){
+          el._busy = true; paintPlan(el);
+          for (const t of ((p.offer && p.offer.tools) || [])) await agentCall('/autonomy', 'POST', { tool: t, mode: 'auto' });
+        }
         el._busy = true; paintPlan(el);
         let r;
         try{ r = await agentCall(`/${encodeURIComponent(p.id)}/approve`, 'POST', { planHash: p.planHash }); }
@@ -2270,6 +2651,10 @@ html.platform-ios body {
         else { if (r.j && r.j.action) el._plan = r.j.action; el._err = (r.j && r.j.error) || 'Could not approve.'; }
         paintPlan(el);
         if (r.ok && el._plan.status === 'executed') feed.scrollTop = feed.scrollHeight;
+        if (r.ok && r.j.run){                       // Phase 3: the task wants a follow-up turn (more to do, or a failure to fix)
+          if (r.j.run.canContinue) continueTask(r.j.run.id, 'result');
+          else if (r.j.run.notice) agentNotice(r.j.run.notice);
+        }
       }
     }
     feed.addEventListener('click', (ev)=>{
@@ -2749,6 +3134,8 @@ html.platform-ios body {
               adoptConversation(payload.conversationId);
             } else if (eventType === 'plan'){
               renderPlanCard(payload);                       // Approval Gate: the model proposed actions — nothing has run yet
+            } else if (eventType === 'consent'){
+              renderConsentCard(payload);                    // Phase 3: "may SHERZ read this folder?" — asked once per folder
             } else if (eventType === 'error'){
               throw new Error(payload.error || 'stream error');
             }
@@ -3620,6 +4007,7 @@ function hideProactiveReturnToast(){
     let renamingId = null, confirmDeleteId = null;
     let activeTurnAbort = null;
     let refreshTimer = null, searchSeq = 0;
+    let spaces = [], spaceMeta = { categories: [], styles: [], icons: [], colors: [], aiGenerator: false }, spacesSupported = true, editingSpace = null, skillEditId = null, spaceSkills = [];
     const drafts = new Map();       // unsent text per conversation, restored when you come back
     const convKey = () => 'sherz_conv_' + (GUEST_ID || '');
     const qUser = () => 'userId=' + encodeURIComponent(GUEST_ID || '');
@@ -3628,7 +4016,8 @@ function hideProactiveReturnToast(){
     const projectList = () => convs.filter(c => c.kind === 'project');
     const currentConv = () => convs.find(c => c.id === currentConvId) || null;
     const currentProject = () => { const c = currentConv(); return c && c.kind === 'project' ? c : null; };
-    function isWorkMode(){ return !!currentProject(); }
+    const currentWork = () => { const c = currentConv(); return c && (c.kind === 'project' || c.kind === 'space') ? c : null; };
+    function isWorkMode(){ return !!currentWork(); }
     const sortConvs = () => convs.sort((a, b) => ((b.kind === 'companion') - (a.kind === 'companion')) || (b.updatedAt - a.updatedAt));
 
     function abortActiveTurn(){
@@ -3678,11 +4067,12 @@ function hideProactiveReturnToast(){
 
     async function initConversations(){
       await refreshConversations();
-      if (!convSupported){ currentConvId = null; return; }
+      if (!convSupported || !companionConv()){ currentConvId = null; return; }   // list failed (e.g. server 500) → no crash, retry on next refresh
       let saved = null;
       try{ saved = localStorage.getItem(convKey()); }catch(e){}
       currentConvId = (saved && convs.some(c => c.id === saved)) ? saved : companionConv().id;
       applyMode(); renderConvList();
+      refreshSpaces();
     }
 
     // the server tells us which conversation a turn landed in
@@ -3704,14 +4094,14 @@ function hideProactiveReturnToast(){
     // ── mode: Companion (personal) vs Work (inside a project) ──
     let lastWork = null;
     function applyMode(){
-      const p = currentProject(), work = !!p;
+      const p = currentWork(), work = !!p, isSpace = !!p && p.kind === 'space';
       document.body.classList.toggle('mode-work', work);
       const badge = $('modeBadge');
       if (badge){
         badge.hidden = !convSupported;
         badge.classList.toggle('work', work);
-        $('modeBadgeText').textContent = work ? 'Work · ' + p.title : 'Companion';
-        badge.title = work ? 'Work mode — project “' + p.title + '”' : 'Companion — your personal thread';
+        $('modeBadgeText').textContent = work ? (isSpace ? 'Space · ' : 'Work · ') + p.title : 'Companion';
+        badge.title = work ? (isSpace ? 'Work Space “' : 'Work mode — project “') + p.title + '”' : 'Companion — your personal thread';
       }
       const ta = $('text');
       if (work){
@@ -3722,8 +4112,9 @@ function hideProactiveReturnToast(){
       }
       if ($('clear')) $('clear').hidden = !work;
       if ($('brainModelName')) $('brainModelName').textContent = work ? 'SHERZ ENGINE v1' : 'SHERZ BRAIN v1';
-      if ($('brainThinkingMode')) $('brainThinkingMode').textContent = work ? 'Surgical Code & Architecture Mode' : 'Casual Companion & Long-Term Memory';
+      if ($('brainThinkingMode')) $('brainThinkingMode').textContent = work ? (isSpace ? 'Work Space · Role, Rules & Skills' : 'Surgical Code & Architecture Mode') : 'Casual Companion & Long-Term Memory';
       lastWork = work;
+      renderSpaces();
     }
     // typing is the primary input for engineering work
     function openChatBar(focus){
@@ -3759,8 +4150,8 @@ function hideProactiveReturnToast(){
       feed.appendChild(wrap);
     }
     function introForCurrent(){
-      const p = currentProject();
-      if (p) renderProjectIntro(p); else runIntroIfEmpty();
+      const p = currentWork();
+      if (p && p.kind === 'space') renderSpaceIntro(p); else if (p) renderProjectIntro(p); else runIntroIfEmpty();
     }
 
     async function openConversation(id, opts = {}){
@@ -3946,6 +4337,292 @@ function hideProactiveReturnToast(){
     $('projectForm')?.addEventListener('keydown', (e) => { if (e.key === 'Escape'){ e.stopPropagation(); showProjectForm(false); $('newProjectBtn')?.focus(); } });
     $('newProjectBtn')?.addEventListener('click', () => showProjectForm($('projectForm').hidden));
     $('companionBtn')?.addEventListener('click', () => { const c = companionConv(); if (c) openConversation(c.id); else closeMenuOnMobile(); });
+
+    // ═════════ Work Spaces (Phase 4) ═════════
+    const SP_ICON = { briefcase: '💼', truck: '🚚', book: '📚', code: '</>', chart: '📊', flask: '⚗', pen: '✎', globe: '🌐', coins: '🪙', palette: '🎨', megaphone: '📣', cap: '🎓', wrench: '🔧' };
+    const currentSpaceConv = () => { const c = currentConv(); return c && c.kind === 'space' ? c : null; };
+    const spaceOfConv = (c) => c ? spaces.find(s => s.id === c.spaceId) || null : null;
+    const styleInfo = (id) => (spaceMeta.styles || []).find(s => s.id === id) || { id, label: id, hint: '', icon: '◐' };
+    let spDraft = { preset: 'blank', icon: 'briefcase', color: 'violet' }, spCat = null;
+
+    async function refreshSpaces(){
+      try{
+        const r = await convFetch('/api/spaces');
+        if (r.status === 404 || r.status === 503){ spacesSupported = false; spaces = []; renderSpaces(); return false; }
+        const d = await r.json().catch(() => null);
+        if (!r.ok || !d || !d.ok) throw new Error('HTTP ' + r.status);
+        spacesSupported = true; spaces = d.spaces || [];
+        spaceMeta = { categories: d.categories || [], styles: d.styles || [], icons: d.icons || [], colors: d.colors || [], aiGenerator: !!d.aiGenerator };
+        renderSpaces(); return true;
+      }catch(e){ console.warn('[spaces] load failed:', e.message); return false; }
+    }
+
+    // ── sidebar: the Space Hub (a profile switcher, deliberately unlike the Projects list) ──
+    function hubMenu(open){
+      const m = $('spaceMenu'), c = $('hubCard'); if (!m || !c) return;
+      m.hidden = !open; c.setAttribute('aria-expanded', open ? 'true' : 'false'); $('spaceHub').classList.toggle('open', !!open);
+    }
+    function renderSpaces(){
+      const hub = $('spaceHub'); if (!hub) return;
+      const show = spacesSupported && convSupported; hub.hidden = !show;
+      if (!show) return;
+      $('spaceCount').textContent = String(spaces.length);
+      const cur = spaceOfConv(currentSpaceConv());
+      $('hubCard').className = 'hub-card' + (cur ? ' active sp-' + cur.color : '');
+      $('hubAvatar').textContent = cur ? (SP_ICON[cur.icon] || '💼') : '✦';
+      $('hubName').textContent = cur ? cur.name : 'Choose a Work Space';
+      $('hubSub').textContent = cur ? ((cur.role ? cur.role + ' · ' : '') + styleInfo(cur.style).label) : (spaces.length ? spaces.length + ' job profile' + (spaces.length === 1 ? '' : 's') + ' ready' : 'A job profile with its own rules and skills');
+      $('hubActions').hidden = !cur;
+      if (cur) $('hubSkillCount').textContent = String(cur.skillCount || 0);
+      const list = $('spaceList'); list.textContent = '';
+      if (!spaces.length){ const e = document.createElement('div'); e.className = 'hub-empty'; e.textContent = 'No Work Spaces yet.'; list.appendChild(e); }
+      for (const s of spaces){
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'hub-item sp-' + s.color + (cur && cur.id === s.id ? ' on' : ''); b.dataset.space = s.id;
+        b.setAttribute('role', 'option'); b.setAttribute('aria-selected', cur && cur.id === s.id ? 'true' : 'false');
+        const av = document.createElement('span'); av.className = 'hub-avatar sm'; av.setAttribute('aria-hidden', 'true'); av.textContent = SP_ICON[s.icon] || '💼';
+        const tx = document.createElement('span'); tx.className = 'hub-text';
+        const n = document.createElement('span'); n.className = 'hub-name'; n.textContent = s.name;
+        const m = document.createElement('span'); m.className = 'hub-sub'; m.textContent = (s.skillCount || 0) + ' skill' + (s.skillCount === 1 ? '' : 's') + ' · ' + styleInfo(s.style).label;
+        tx.append(n, m); b.append(av, tx);
+        b.addEventListener('click', () => { hubMenu(false); openSpace(s.id); });
+        list.appendChild(b);
+      }
+    }
+    async function openSpace(id, opts = {}){
+      try{
+        const r = await convFetch('/api/spaces/' + encodeURIComponent(id) + '/open', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fresh: !!opts.fresh, userId: GUEST_ID }) });
+        const d = await r.json().catch(() => null);
+        if (!r.ok || !d || !d.ok || !d.conversation) throw new Error((d && d.error) || ('HTTP ' + r.status));
+        if (!convs.some(c => c.id === d.conversation.id)) convs.push(d.conversation);
+        sortConvs(); renderConvList();
+        await openConversation(d.conversation.id); renderSpaces();
+      }catch(e){ menuNotice('Couldn’t open the Work Space.'); }
+    }
+
+    // ── creator / editor sheet ──
+    const spErr = (m, id = 'spError') => { const e = $(id); e.textContent = m || ''; e.hidden = !m; };
+    function spMeter(){
+      const n = ($('spRole').value.length + $('spInstr').value.length);
+      const tok = Math.ceil(n / 4), len = $('spInstr').value.length;
+      $('spMeter').textContent = '~' + tok + ' tokens added to every message · ' + len + '/2000 characters of instructions';
+      $('spMeter').classList.toggle('warn', len > 1600);
+    }
+    function spSetStyle(id){
+      $('spStyle').value = id;
+      for (const b of $('spStyles').children){ const on = b.dataset.style === id; b.classList.toggle('on', on); b.setAttribute('aria-checked', on ? 'true' : 'false'); }
+    }
+    function spRenderStyles(){
+      const box = $('spStyles'); box.textContent = '';
+      for (const s of (spaceMeta.styles || [])){
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'sp-style'; b.dataset.style = s.id; b.setAttribute('role', 'radio');
+        const i = document.createElement('span'); i.className = 'sp-style-ico'; i.setAttribute('aria-hidden', 'true'); i.textContent = s.icon;
+        const t = document.createElement('span'); t.className = 'sp-style-txt';
+        const l = document.createElement('b'); l.textContent = s.label; const h = document.createElement('small'); h.textContent = s.hint; t.append(l, h);
+        b.append(i, t); b.addEventListener('click', () => spSetStyle(s.id)); box.appendChild(b);
+      }
+      spSetStyle($('spStyle').value || 'general');
+    }
+    function spFill(p, { keepName = false } = {}){
+      if (!keepName || !$('spName').value.trim()) $('spName').value = p.name || p.label || '';
+      $('spRole').value = p.role || ''; $('spInstr').value = p.instructions || ''; spSetStyle(p.style || 'general'); spMeter();
+    }
+    function spRenderCats(){
+      const cats = $('spCats'); cats.textContent = '';
+      for (const c of (spaceMeta.categories || [])){
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'sp-cat' + (c.id === spCat ? ' on' : ''); b.dataset.cat = c.id; b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', c.id === spCat ? 'true' : 'false');
+        b.textContent = (SP_ICON[c.icon] || '') + ' ' + c.label; b.addEventListener('click', () => { spCat = c.id; spRenderCats(); });
+        cats.appendChild(b);
+      }
+      const box = $('spRoles'); box.textContent = '';
+      const cat = (spaceMeta.categories || []).find(c => c.id === spCat); if (!cat) return;
+      for (const r of cat.roles){
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'sp-role sp-' + r.color + (spDraft.preset === r.id ? ' on' : ''); b.dataset.role = r.id;
+        const i = document.createElement('span'); i.className = 'sp-role-ico'; i.textContent = SP_ICON[r.icon] || '💼';
+        const t = document.createElement('span'); t.className = 'sp-role-txt'; const l = document.createElement('b'); l.textContent = r.label; const h = document.createElement('small'); h.textContent = styleInfo(r.style).label; t.append(l, h);
+        b.append(i, t);
+        b.addEventListener('click', () => {
+          spDraft = { preset: r.id, icon: r.icon, color: r.color };
+          $('spName').dataset.auto = '1'; spFill({ name: r.label, role: r.role, instructions: r.instructions, style: r.style }, { keepName: false });
+          $('spGenNote').textContent = ''; spRenderCats(); $('spName').focus();
+        });
+        box.appendChild(b);
+      }
+    }
+    async function spGenerate(){
+      const desc = $('spDesc').value.replace(/\s+/g, ' ').trim(), note = $('spGenNote'), btn = $('spGenerate');
+      note.className = 'sp-note'; if (desc.length < 3){ note.textContent = 'Describe your role in a few words.'; note.classList.add('err'); $('spDesc').focus(); return; }
+      btn.disabled = true; btn.textContent = 'Generating…'; note.textContent = '';
+      try{
+        const r = await convFetch('/api/spaces/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ description: desc, userId: GUEST_ID }) });
+        const d = await r.json().catch(() => null);
+        if (!r.ok || !d || !d.ok) throw new Error((d && d.error) || ('HTTP ' + r.status));
+        spDraft = { preset: 'blank', icon: d.space.icon || 'briefcase', color: d.space.color || 'violet' };
+        $('spName').dataset.auto = '1'; spFill(d.space); spRenderCats();
+        note.textContent = d.source === 'ai' ? 'Written by AI for “' + desc + '”. Review and edit before creating.' : 'Built from a template (AI is not available right now). Review and edit before creating.';
+        note.classList.add('ok'); $('spInstr').focus();
+      }catch(e){ note.textContent = /^HTTP/.test(e.message) ? 'Couldn’t generate. Try again or pick a role below.' : e.message; note.classList.add('err'); }
+      finally{ btn.disabled = false; btn.textContent = '✨ Generate'; }
+    }
+    function spTab(tab){
+      $('spProfile').hidden = tab !== 'profile'; $('spSkills').hidden = tab !== 'skills';
+      $('spTabProfile').classList.toggle('on', tab === 'profile'); $('spTabSkills').classList.toggle('on', tab === 'skills');
+    }
+    function openSpaceSheet(space, tab = 'profile'){
+      editingSpace = space || null; skillEditId = null; hubMenu(false);
+      $('spTitle').textContent = space ? space.name : 'New Work Space';
+      $('spTabSkills').disabled = !space; $('spTabSkills').title = space ? '' : 'Create the Work Space first';
+      $('spStart').hidden = !!space; $('spDanger').hidden = !space;
+      $('spSave').textContent = space ? 'Save changes' : 'Create Work Space';
+      spErr(''); $('spDelete').textContent = 'Delete forever'; $('spDelete').dataset.armed = ''; $('spName').dataset.auto = '';
+      $('spGenNote').textContent = ''; $('spGenNote').className = 'sp-note'; $('spDesc').value = '';
+      spDraft = { preset: 'blank', icon: 'briefcase', color: 'violet' };
+      spRenderStyles();
+      if (space){ $('spName').value = space.name; $('spRole').value = space.role || ''; $('spInstr').value = space.instructions || ''; spSetStyle(space.style || 'general'); spMeter(); }
+      else { spCat = (spaceMeta.categories[0] || {}).id || null; $('spName').value = ''; $('spRole').value = ''; $('spInstr').value = ''; spSetStyle('general'); spRenderCats(); spMeter(); }
+      resetSkillForm(); spTab(space && tab === 'skills' ? 'skills' : 'profile');
+      $('spaceModal').hidden = false; document.body.classList.add('sp-open');
+      if (space && tab === 'skills') loadSkills(); else setTimeout(() => $(space ? 'spName' : 'spDesc').focus(), 40);
+    }
+    function closeSpaceSheet(){ $('spaceModal').hidden = true; document.body.classList.remove('sp-open'); editingSpace = null; }
+    let spBusy = false;
+    async function saveSpace(ev){
+      ev.preventDefault(); if (spBusy) return;
+      const name = $('spName').value.replace(/\s+/g, ' ').trim();
+      if (!name){ spErr('Give your Work Space a name.'); $('spName').focus(); return; }
+      const body = { name, role: $('spRole').value, instructions: $('spInstr').value, style: $('spStyle').value, userId: GUEST_ID };
+      if (!editingSpace){ body.preset = spDraft.preset; body.icon = spDraft.icon; body.color = spDraft.color; }
+      spBusy = true; spErr(''); const btn = $('spSave'); btn.disabled = true;
+      try{
+        const r = await convFetch('/api/spaces' + (editingSpace ? '/' + encodeURIComponent(editingSpace.id) : ''), { method: editingSpace ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const d = await r.json().catch(() => null);
+        if (!r.ok || !d || !d.ok) throw new Error((d && d.error) || ('HTTP ' + r.status));
+        const created = !editingSpace; closeSpaceSheet();
+        await refreshSpaces();
+        if (created) await openSpace(d.space.id); else { await refreshConversations(); }
+      }catch(e){ spErr(/^HTTP/.test(e.message) ? 'Couldn’t save. Try again.' : e.message); }
+      finally{ spBusy = false; btn.disabled = false; }
+    }
+    async function removeSpace(permanent){
+      if (!editingSpace) return; const id = editingSpace.id;
+      try{
+        const r = await convFetch('/api/spaces/' + encodeURIComponent(id) + (permanent ? '?permanent=1' : ''), { method: 'DELETE' });
+        if (!r.ok && r.status !== 404) throw new Error('HTTP ' + r.status);
+        const was = currentSpaceConv() && currentSpaceConv().spaceId === id;
+        closeSpaceSheet();
+        convs = convs.filter(c => c.spaceId !== id); await refreshSpaces();
+        if (was){ const c = companionConv(); if (c) await openConversation(c.id, { userAction: false }); }
+        await refreshConversations(); menuNotice(permanent ? 'Work Space deleted.' : 'Work Space archived.');
+      }catch(e){ spErr('Couldn’t remove the Work Space.'); }
+    }
+
+    // ── skills dashboard ──
+    function resetSkillForm(){
+      skillEditId = null; for (const id of ['skName', 'skSummary', 'skBody', 'skTriggers']) $(id).value = '';
+      $('spSkillFormTitle').textContent = 'Teach a skill'; $('skSave').textContent = 'Save skill'; $('skCancel').hidden = true; spErr('', 'skError');
+    }
+    async function loadSkills(){
+      if (!editingSpace) return;
+      try{
+        const r = await convFetch('/api/spaces/' + encodeURIComponent(editingSpace.id) + '/skills');
+        const d = await r.json().catch(() => null);
+        if (!r.ok || !d || !d.ok) throw new Error('HTTP ' + r.status);
+        spaceSkills = d.skills || [];
+      }catch(e){ spaceSkills = []; spErr('Couldn’t load skills.', 'skError'); }
+      renderSkills();
+    }
+    function renderSkills(){
+      const box = $('spSkillList'); box.textContent = '';
+      if (!spaceSkills.length){ box.appendChild(emptyState('No skills yet', 'Teach one below: steps SHERZ should follow for a recurring task.')); return; }
+      for (const s of spaceSkills){
+        const card = document.createElement('div'); card.className = 'sk-card'; card.dataset.id = s.id;
+        const top = document.createElement('div'); top.className = 'sk-top';
+        const nm = document.createElement('b'); nm.className = 'sk-name'; nm.textContent = s.name;
+        const lv = document.createElement('span'); lv.className = 'sk-level lv-' + s.level; lv.textContent = s.label;
+        const src = document.createElement('span'); src.className = 'sk-src'; src.textContent = s.source === 'researched' ? 'Researched' : 'Taught by you';
+        top.append(nm, lv, src);
+        const sum = document.createElement('div'); sum.className = 'sk-sum'; sum.textContent = s.summary;
+        const stat = document.createElement('div'); stat.className = 'sk-stat';
+        stat.textContent = s.uses + ' use' + (s.uses === 1 ? '' : 's') + ' · ' + (s.accepted === null ? 'no verdicts yet' : s.accepted + '% accepted') + (s.idle ? ' · idle 90d+' : '');
+        const det = document.createElement('details'); det.className = 'sk-det'; const sm = document.createElement('summary'); sm.textContent = 'Steps';
+        const pre = document.createElement('pre'); pre.className = 'sk-body'; pre.textContent = s.body; det.append(sm, pre);
+        const acts = document.createElement('div'); acts.className = 'sk-acts';
+        const up = mkBtn('sk-btn', 'Good skill', '👍'), dn = mkBtn('sk-btn', 'Needs work', '👎'), ed = mkBtn('sk-btn', 'Edit skill', ICON_EDIT), del = mkBtn('sk-btn danger', 'Delete skill', ICON_TRASH);
+        up.addEventListener('click', () => skillFeedback(s.id, 1)); dn.addEventListener('click', () => skillFeedback(s.id, -1));
+        ed.addEventListener('click', () => {
+          skillEditId = s.id; $('skName').value = s.name; $('skSummary').value = s.summary; $('skBody').value = s.body; $('skTriggers').value = (s.triggers || []).join(', ');
+          $('spSkillFormTitle').textContent = 'Edit skill'; $('skSave').textContent = 'Save changes'; $('skCancel').hidden = false; $('skName').focus();
+        });
+        del.addEventListener('click', async () => {
+          if (del.dataset.armed !== '1'){ del.dataset.armed = '1'; del.classList.add('armed'); del.title = 'Click again to delete'; setTimeout(() => { del.dataset.armed = ''; del.classList.remove('armed'); }, 3000); return; }
+          try{ await convFetch('/api/spaces/' + encodeURIComponent(editingSpace.id) + '/skills/' + encodeURIComponent(s.id), { method: 'DELETE' }); }catch(e){}
+          await loadSkills(); refreshSpaces();
+        });
+        acts.append(up, dn, ed, del);
+        card.append(top, sum, stat, det, acts); box.appendChild(card);
+      }
+    }
+    async function skillFeedback(id, value){
+      try{
+        await convFetch('/api/spaces/' + encodeURIComponent(editingSpace.id) + '/skills/' + encodeURIComponent(id) + '/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value, userId: GUEST_ID }) });
+      }catch(e){}
+      loadSkills();
+    }
+    async function saveSkill(ev){
+      ev.preventDefault(); if (!editingSpace) return;
+      const body = { name: $('skName').value, summary: $('skSummary').value, body: $('skBody').value, triggers: $('skTriggers').value, userId: GUEST_ID };
+      const base = '/api/spaces/' + encodeURIComponent(editingSpace.id) + '/skills';
+      $('skSave').disabled = true; spErr('', 'skError');
+      try{
+        const r = await convFetch(base + (skillEditId ? '/' + encodeURIComponent(skillEditId) : ''), { method: skillEditId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const d = await r.json().catch(() => null);
+        if (!r.ok || !d || !d.ok) throw new Error((d && d.error) || ('HTTP ' + r.status));
+        resetSkillForm(); await loadSkills(); refreshSpaces();
+      }catch(e){ spErr(/^HTTP/.test(e.message) ? 'Couldn’t save the skill. Try again.' : e.message, 'skError'); }
+      finally{ $('skSave').disabled = false; }
+    }
+
+    // ── intro inside a Space chat ──
+    function renderSpaceIntro(c){
+      if (!c || feed.querySelector('.project-intro')) return;
+      if (Array.from(feed.children).some(el => el.classList && el.classList.contains('bubble'))) return;
+      const s = spaceOfConv(c);
+      const wrap = document.createElement('div'); wrap.className = 'bubble ai stable project-intro space-intro';
+      wrap.innerHTML =
+        '<div class="pi-kicker"><span class="pi-ico">' + esc(SP_ICON[(s && s.icon) || 'briefcase'] || '💼') + '</span> Work Space</div>' +
+        '<div class="pi-title">' + esc(c.title) + '</div>' + (s && s.role ? '<div class="pi-goal">' + esc(s.role) + '</div>' : '') +
+        '<p class="pi-text">This Space has its own role, rules and skills, separate from your Companion thread. Teach it procedures and it will use them when your message matches.</p>';
+      const sug = document.createElement('div'); sug.className = 'suggest';
+      const mk = (label, fn) => { const ch = document.createElement('div'); ch.className = 'chip'; ch.textContent = label; ch.addEventListener('click', fn); sug.appendChild(ch); };
+      mk('What can you do here?', () => { openChatBar(false); const ta = $('text'); ta.value = 'What can you do in this Work Space, and which skills do you have?'; ta.focus(); markActivity(); });
+      mk('Teach a skill', () => { if (s) openSpaceSheet(s, 'skills'); });
+      mk('Edit this Space', () => { if (s) openSpaceSheet(s, 'profile'); });
+      wrap.appendChild(sug); feed.appendChild(wrap);
+    }
+
+    $('hubCard')?.addEventListener('click', () => hubMenu($('spaceMenu').hidden));
+    $('hubSkills')?.addEventListener('click', () => { const s = spaceOfConv(currentSpaceConv()); if (s) openSpaceSheet(s, 'skills'); });
+    $('hubEdit')?.addEventListener('click', () => { const s = spaceOfConv(currentSpaceConv()); if (s) openSpaceSheet(s, 'profile'); });
+    $('newSpaceBtn')?.addEventListener('click', () => { hubMenu(false); openMenu(); openSpaceSheet(null); });
+    document.addEventListener('mousedown', (e) => { const h = $('spaceHub'); if (h && !$('spaceMenu').hidden && !h.contains(e.target)) hubMenu(false); });
+    $('spaceHub')?.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('spaceMenu').hidden){ e.stopPropagation(); hubMenu(false); $('hubCard').focus(); } });
+    $('spGenerate')?.addEventListener('click', spGenerate);
+    $('spDesc')?.addEventListener('keydown', (e) => { if (e.key === 'Enter'){ e.preventDefault(); spGenerate(); } });
+    $('spClose')?.addEventListener('click', closeSpaceSheet);
+    $('spCancel')?.addEventListener('click', closeSpaceSheet);
+    $('spaceModal')?.addEventListener('mousedown', (e) => { if (e.target === $('spaceModal')) closeSpaceSheet(); });
+    $('spaceModal')?.addEventListener('keydown', (e) => { if (e.key === 'Escape'){ e.stopPropagation(); closeSpaceSheet(); } });
+    $('spProfile')?.addEventListener('submit', saveSpace);
+    $('spRole')?.addEventListener('input', spMeter); $('spInstr')?.addEventListener('input', spMeter);
+    $('spName')?.addEventListener('input', () => { $('spName').dataset.auto = ''; });
+    $('spTabProfile')?.addEventListener('click', () => spTab('profile'));
+    $('spTabSkills')?.addEventListener('click', () => { if (!editingSpace) return; spTab('skills'); loadSkills(); });
+    $('spArchive')?.addEventListener('click', () => removeSpace(false));
+    $('spDelete')?.addEventListener('click', () => {
+      const b = $('spDelete'); if (b.dataset.armed !== '1'){ b.dataset.armed = '1'; b.textContent = 'Click again: deletes chats and skills'; return; }
+      removeSpace(true);
+    });
+    $('spSkillForm')?.addEventListener('submit', saveSkill);
+    $('skCancel')?.addEventListener('click', resetSkillForm);
 
     async function renameConversationUI(id, raw){
       const title = String(raw || '').replace(/\s+/g, ' ').trim().slice(0, 80);

@@ -1,0 +1,71 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Work Spaces + Skills (Phase 4).  Apply, then run:  npx prisma db push
+//
+// 1) APPEND the three models below to the END of prisma/schema.prisma
+// 2) ADD these lines to your EXISTING models (one line each):
+//      model User         { …  workSpaces   WorkSpace[]   }
+//      model Conversation { …  spaceId String?   space WorkSpace? @relation(fields: [spaceId], references: [id], onDelete: SetNull)   @@index([userId, spaceId]) }
+//    (Conversation.kind gets one more value, "space" — it is a plain String, no migration needed for that.)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model WorkSpace {
+  id            String         @id @default(cuid())
+  userId        String
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String
+  role          String?                         // one line: who the AI should be here
+  preset        String         @default("blank") // blank | dispatcher | student | developer
+  style         String         @default("general") // general | engineering  (which Work-mode block is used)
+  icon          String         @default("briefcase")
+  color         String         @default("violet")
+  instructions  String         @default("")     // user-written, max 2000 chars
+  tools         Json           @default("{}")
+  templates     Json           @default("[]")
+  archivedAt    DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  conversations Conversation[]
+  skills        Skill[]
+
+  @@unique([userId, name])
+  @@index([userId, archivedAt])
+}
+
+model Skill {
+  id          String       @id @default(cuid())
+  userId      String
+  spaceId     String
+  space       WorkSpace    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  name        String
+  summary     String
+  body        String
+  triggers    Json         @default("[]")
+  source      String       @default("taught")  // taught | researched | observed
+  sourceRefs  Json         @default("[]")
+  status      String       @default("active")  // draft | active | archived
+  version     Int          @default(1)
+  uses        Int          @default(0)         // plans this skill informed
+  successes   Int          @default(0)
+  corrections Int          @default(0)
+  rejections  Int          @default(0)
+  lastUsedAt  DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  events      SkillEvent[]
+
+  @@unique([spaceId, name])
+  @@index([userId, spaceId, status])
+}
+
+model SkillEvent {
+  id      String   @id @default(cuid())
+  userId  String
+  skillId String
+  skill   Skill    @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  type    String                                // created | edited | used | success | corrected | rejected | thumbs_up | thumbs_down
+  ref     String?                               // the AgentAction id a "used" event belongs to
+  at      DateTime @default(now())
+
+  @@index([skillId, at])
+  @@index([ref, type])
+}

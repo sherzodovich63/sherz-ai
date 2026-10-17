@@ -17,3 +17,71 @@ model AgentAction {
 
   @@index([userId, status, createdAt])
 }
+
+// ── Helper devices (the small program on the user's computer) — append this too, then `npx prisma db push` once ──
+model HelperDevice {
+  id         String    @id @default(cuid())
+  userId     String
+  name       String
+  tokenHash  String    @unique              // sha256 of the device token; the token itself is never stored
+  lastSeenAt DateTime?
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime?
+
+  @@index([userId])
+}
+
+// ── Phase 2: habits learned from approvals / edits / rejections — append this too, then `npx prisma db push` ──
+// Stores SHAPES only (tool + folder + file type + counters). Never file contents. No relation to User on purpose (guest ids can't break an FK).
+model UserPattern {
+  id         String   @id @default(cuid())
+  userId     String
+  signature  String                       // "files.write|notes|.md"
+  tool       String
+  dir        String   @default("")
+  ext        String   @default("")
+  approvals  Int      @default(0)         // executed OK after the user approved
+  rejections Int      @default(0)
+  edits      Int      @default(0)         // user tweaked the content/args but kept the same kind of step
+  preferred  Int      @default(0)         // user edited a plan INTO this shape
+  corrected  Int      @default(0)         // user edited a plan AWAY from this shape
+  failures   Int      @default(0)
+  redirectTo String?                      // "folder|ext" the user usually changes this to
+  lastArgs   Json?                        // example args (path only, no content)
+  lastUsedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, signature])
+  @@index([userId])
+}
+
+// ── Phase 3a/3b: task runs + folder consent — append these too, then `npx prisma db push` ──
+// One AgentRun = one goal worked on over several model turns (observe → plan → approve → results → continue).
+model AgentRun {
+  id             String   @id @default(cuid())
+  userId         String
+  conversationId String?
+  goal           String                      // the user's request (shortened)
+  status         String   @default("active") // active | awaiting_consent | done | stopped | budget | failed
+  stats          Json     @default("{}")     // budgets used: plans, observations, obsBytes, steps, failures, continuations …
+  tainted        Boolean  @default(false)    // file text was read in this run → network tools are switched off
+  nextHint       String?                     // what the model said it will do after the current plan
+  digest         Json     @default("[]")     // short trace of what was observed, so the next turn still knows
+  lastActionId   String?                     // the AgentAction this run is waiting on / last ran
+  pendingConsent String?                     // folder the user is being asked about
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([userId, conversationId, status])
+  @@index([lastActionId])
+}
+
+// Per-user agent settings: which folders SHERZ may READ into the model's context (consent), plus room for autonomy toggles (Phase 3c).
+model AgentSettings {
+  userId         String   @id
+  consentFolders Json     @default("[]")     // ["notes", "docs/work"]  ("." = the whole shared folder)
+  autonomy       Json     @default("{}")     // Phase 3c per-tool auto-approval toggles (all OFF by default)
+  prefs          Json     @default("{}")     // Phase 3d pinned rules + inferred naming/folder convention counters (shapes only)
+  updatedAt      DateTime @updatedAt
+}

@@ -33,6 +33,17 @@ function buildProactiveSystem({ tone, length, profile }) {
 function buildUserPrompt({ signals, decision }) {
   // signals.profile ichida one-liner, stress triggers, goals/habits bor
   // last_state ham bor
+  const directive = decision?.curiosity?.directive;
+  const tail = directive
+    ? [
+        `Bu safar o‘z qiziqishingdan yozasan (intent: ${decision.intent}, flavor: ${decision.curiosity.flavor}).`,
+        directive,
+        `Salomlashish majburiy emas. Foydalanuvchi javob bermasligi mumkin — bu mutlaqo normal.`,
+      ]
+    : [
+        `Xabar faqat boshlang‘ich bo‘lsin (salom + bitta motiv + bitta savol bo‘lsa).`,
+        `Hech qanday "men sizga yordam beraman" klassik assistent gaplari bo‘lmasin.`,
+      ];
   return [
     `Vazifa: userga proactive check-in xabar yoz.`,
     `Hozirgi vaqt: ${signals.time.iso} (${signals.time.timezone}).`,
@@ -40,8 +51,7 @@ function buildUserPrompt({ signals, decision }) {
     `Last_state: ${signals.last_state || 'null'}.`,
     `Nega yozayapsan: ${decision.reason}`,
     ``,
-    `Xabar faqat boshlang‘ich bo‘lsin (salom + bitta motiv + bitta savol bo‘lsa).`,
-    `Hech qanday "men sizga yordam beraman" klassik assistent gaplari bo‘lmasin.`,
+    ...tail,
   ].join('\n');
 }
 
