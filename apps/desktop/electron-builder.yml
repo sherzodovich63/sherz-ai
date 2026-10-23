@@ -1,0 +1,28 @@
+# Builds the installers:  npm run desktop:build   (from the apps folder)
+appId: ai.sherz.app
+productName: SHERZ
+copyright: SHERZ AI
+directories: { output: dist, buildResources: build }
+files: [ "src/**/*", "package.json" ]
+extraResources:
+  - { from: "../www", to: "www" }          # the web app (made by `npm run sync`)
+protocols: [ { name: SHERZ, schemes: [ sherz ] } ]    # sherz://  → used to come back from Google sign-in
+win:
+  target: [ { target: nsis, arch: [ x64 ] } ]
+  icon: build/icon.png
+nsis: { oneClick: false, perMachine: false, allowToChangeInstallationDirectory: true, createDesktopShortcut: true }
+mac:
+  category: public.app-category.productivity
+  target: [ { target: dmg, arch: [ x64, arm64 ] } ]
+  icon: build/icon.png
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSMicrophoneUsageDescription: SHERZ uses the microphone so you can talk to it.
+linux:
+  target: [ AppImage ]
+  category: Utility
+  icon: build/icon.png
+# Auto-update: set a real release location before publishing (GitHub Releases works out of the box with a token):
+# publish: { provider: github, owner: YOUR_GITHUB_USER, repo: sherz-ai }

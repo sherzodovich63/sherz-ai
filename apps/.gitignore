@@ -1,0 +1,9 @@
+www/
+node_modules/
+desktop/dist/
+mobile/android/
+mobile/ios/
+*.apk
+*.ipa
+*.dmg
+*.exe

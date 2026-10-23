@@ -1,0 +1,20 @@
+{
+  "name": "sherz-apps",
+  "private": true,
+  "version": "0.1.0",
+  "description": "SHERZ desktop (Electron) and mobile (Capacitor) apps. They bundle the web app from ../public.",
+  "type": "module",
+  "scripts": {
+    "doctor": "node scripts/doctor.mjs",
+    "sync": "node scripts/sync-web.mjs",
+    "setup": "npm install --prefix desktop && npm install --prefix mobile",
+    "desktop:dev": "npm run sync && npm start --prefix desktop",
+    "desktop:build": "npm run sync && npm run dist --prefix desktop",
+    "mobile:init": "npm run sync && npm run init --prefix mobile",
+    "mobile:sync": "npm run sync && npm run sync --prefix mobile",
+    "android:open": "npm run mobile:sync && npm run open:android --prefix mobile",
+    "android:apk": "npm run mobile:sync && npm run apk --prefix mobile",
+    "ios:open": "npm run mobile:sync && npm run open:ios --prefix mobile",
+    "test": "node --test scripts/*.test.mjs"
+  }
+}

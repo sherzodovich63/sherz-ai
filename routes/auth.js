@@ -17,6 +17,7 @@ import { z }       from 'zod';
 import { OAuth2Client } from 'google-auth-library';
 import { signJwt, authRequired, optionalAuth } from '../middleware/auth.js';
 import { googleLogin } from '../lib/googleLogin.js';
+import { NATIVE_STATE, isNativeState, nativeRedirectUrl, nativeHandoffHtml } from '../lib/nativeAuth.js'; // desktop / mobile apps
 import { resolveRedirect, resolveClientId, maskId, buildAuthUrl, frontendBase } from '../lib/googleOAuthConfig.js'; // ✅ one source of truth for the redirect_uri
 import { isGuestId } from '../lib/guestMerge.js';
 
@@ -244,7 +245,7 @@ export function authRouter(prisma) {
     warnings.forEach((w) => console.warn('[auth/google] ⚠️', w));
     // Logged so the exact value Google receives is visible in Render's logs (client_id is public; no secret here)
     console.log(`[auth/google] redirecting to Google · redirect_uri=${redirectUri} (from ${source}) · client_id=${maskId(clientId)}`);
-    res.redirect(buildAuthUrl({ clientId, redirectUri }));
+    res.redirect(buildAuthUrl({ clientId, redirectUri, state: req.query?.native ? NATIVE_STATE : '' }));   // ?native=1 → started from the desktop / mobile app
   });
 
   // GET /api/auth/google/debug — shows what we WOULD send to Google (no secrets). Open it in the browser to compare
@@ -274,10 +275,13 @@ export function authRouter(prisma) {
   // ──────────────────────────────────────────────────────────────
   router.get('/google/callback', async (req, res) => {
     const { code, error } = req.query;
+    const fromApp = isNativeState(req.query?.state);         // the login was started inside the desktop / mobile app → hand the result back through sherz://
+    if (fromApp) res.set('Cache-Control', 'no-store');        // the page carries the sign-in token → never cached
     const back = frontendBase();                          // e.g. https://sherz-ai.vercel.app — the token must land on the FRONTEND origin
 
     if (error || !code) {
       console.error('[google/callback] error from Google:', error);
+      if (fromApp) return res.type('html').send(nativeHandoffHtml(nativeRedirectUrl({ error: error || 'no_code' })));
       return res.redirect(back + '/?auth_error=' + encodeURIComponent(error || 'no_code'));
     }
 
@@ -351,10 +355,12 @@ export function authRouter(prisma) {
 
       // ── Step 5: Redirect to frontend with token ───────────────
       // The frontend catches ?token= on load and stores it in localStorage
+      if (fromApp) return res.type('html').send(nativeHandoffHtml(nativeRedirectUrl({ token, name: user.name || '' })));
       res.redirect(`${back}/?token=${encodeURIComponent(token)}&name=${encodeURIComponent(user.name || '')}`);
 
     } catch (err) {
       console.error('[google/callback] error:', err.message);
+      if (fromApp) return res.type('html').send(nativeHandoffHtml(nativeRedirectUrl({ error: err.message })));
       res.redirect(back + '/?auth_error=' + encodeURIComponent(err.message));
     }
   });

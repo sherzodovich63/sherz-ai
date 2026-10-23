@@ -1,0 +1,23 @@
+{
+  "appId": "ai.sherz.app",
+  "appName": "SHERZ",
+  "webDir": "../www",
+  "backgroundColor": "#070709",
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "capacitor"
+  },
+  "android": {
+    "allowMixedContent": false
+  },
+  "ios": {
+    "contentInset": "never",
+    "limitsNavigationsToAppBoundDomains": false
+  },
+  "plugins": {
+    "CapacitorHttp": { "enabled": false },
+    "SplashScreen": { "launchShowDuration": 600, "backgroundColor": "#070709", "showSpinner": false },
+    "StatusBar": { "style": "DARK", "backgroundColor": "#070709" },
+    "PushNotifications": { "presentationOptions": ["badge", "sound", "alert"] }
+  }
+}
