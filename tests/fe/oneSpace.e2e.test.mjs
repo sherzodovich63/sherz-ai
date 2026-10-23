@@ -1,0 +1,55 @@
+const { chromium } = await import('playwright-core');
+const { startMock, mkJwt } = await import('./mock.mjs');
+const { server, state, port } = await startMock('public');
+const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', args: ['--no-sandbox'] });
+let pass = 0, fail = 0; const ok = (n, c, x = '') => { c ? pass++ : fail++; console.log(`${c ? 'PASS' : 'FAIL'}  ${n} ${x}`); };
+const USER = mkJwt({ id: 'user_1', name: 'B', email: 'b@e.com', exp: Math.floor(Date.now() / 1000) + 3600 });
+// an older account: three Spaces from before the one-Space rule
+const mk = (name, preset, icon) => state.spaceDb.workSpace.create({ data: { userId: 'user_1', name, preset, icon, style: 'general', color: 'violet', instructions: name + ' rules' } });
+const a = await mk('Amazon Dispatch', 'logistics.dispatcher', 'truck'), b = await mk('TDIU Student', 'blank', 'book'), c = await mk('Side project', 'blank', 'code');
+const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 } });
+await ctx.route(/^https?:\/\/(?!localhost)/, (r) => r.abort());
+await ctx.addInitScript((t) => { localStorage.setItem('sherz_token', t); }, USER);
+const page = await ctx.newPage(); const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+await page.goto(`http://localhost:${port}/`); await page.waitForTimeout(1800);
+const T = (sel) => page.textContent(sel);
+ok('older account: the "choose your Work Space" dialog opens on its own', await page.isVisible('#pickModal') && /Choose your Work Space/.test(await T('#pkTitle')));
+ok('it lists all three, first preselected, second-role list excludes the kept one', (await page.$$('#pkList .pk-item')).length === 3 && (await page.$$('#pkSecond .pk-item')).length === 3 && /Nothing is deleted/.test(await T('.pk-text')));
+await page.screenshot({ path: 'shots/pick-dialog.png' });
+await page.click('#pkLater'); await page.waitForTimeout(200);
+ok('"Later" closes it and archives nothing', !(await page.isVisible('#pickModal')) && state.spaceDb.T.workSpace.every((w) => !w.archivedAt));
+await page.click('#btnLeftPanel').catch(() => {}); await page.waitForTimeout(300);
+await page.click('#hubCard'); await page.waitForTimeout(200);
+ok('hub offers a "Keep one…" chip (no Create row)', /Keep one/.test(await T('#hubAddRole')) && !(await page.$('#newSpaceBtn')) && (await page.$$('#spaceList .hub-item')).length === 3);
+await page.click('#hubAddRole'); await page.waitForTimeout(250);
+ok('that button reopens the dialog', await page.isVisible('#pickModal'));
+await page.click('#pkList .pk-item:nth-child(2)'); await page.waitForTimeout(100);       // keep the 2nd (TDIU)
+const keepId = await page.$eval('#pkList .pk-item.on', (e) => e.dataset.id);
+const second = await page.$$eval('#pkSecond .pk-item', (l) => l.map((e) => e.dataset.id));
+ok('choosing what to keep removes it from the second-role list; "No second role" is first', second[0] === '' && !second.includes(keepId) && second.length === 3, JSON.stringify(second));
+await page.click('#pkSecond .pk-item:nth-child(2)'); await page.waitForTimeout(100);
+ok('second role selection is marked', (await page.$$eval('#pkSecond .pk-item.on', (l) => l.length)) === 1 && (await page.$eval('#pkSecond .pk-item.on', (e) => e.dataset.id)) !== '');
+await page.screenshot({ path: 'shots/pick-chosen.png' });
+await page.click('#pkSave'); await page.waitForTimeout(1500);
+const rows = state.spaceDb.T.workSpace;
+ok('server: exactly one active Work Space; the others archived, none deleted', rows.length === 3 && rows.filter((w) => !w.archivedAt).length === 1 && rows.find((w) => !w.archivedAt).id === keepId, JSON.stringify(rows.map((w) => [w.name, !!w.archivedAt])));
+const kept = rows.find((w) => !w.archivedAt);
+ok('second role copied into the kept Space', kept.role2 && kept.role2.name && kept.role2.name !== kept.name, JSON.stringify(kept.role2));
+ok('dialog closed, hub shows ONE Space with two roles (2/2) and no create row', !(await page.isVisible('#pickModal')) && /2\/2/.test(await T('#spaceCount')));
+await page.click('#hubCard').catch(() => {}); await page.waitForTimeout(200);
+const hubOpen = await page.isVisible('#spaceMenu');
+if (!hubOpen) await page.click('#hubCard');
+ok('menu lists two roles', (await page.$$('#spaceList .hub-item')).length === 2 && !(await page.isVisible('#hubAddRole')));
+await page.screenshot({ path: 'shots/hub-after-pick.png' });
+// reload: no dialog any more
+await page.reload(); await page.waitForTimeout(1800);
+ok('after choosing, the dialog never appears again', !(await page.isVisible('#pickModal')));
+// light theme + phone fit
+await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'));
+state.spaceDb.T.workSpace.forEach((w) => { w.archivedAt = null; });
+await page.setViewportSize({ width: 390, height: 780 }); await page.reload(); await page.waitForTimeout(1800);
+const ov = await page.evaluate(() => { const e = document.querySelector('#pickModal .sp-sheet'); const r = e.getBoundingClientRect(); return { open: !document.getElementById('pickModal').hidden, l: r.left, r: r.right, w: innerWidth, sx: document.documentElement.scrollWidth }; });
+ok('phone: dialog fits, no horizontal scroll', ov.open && ov.l >= 0 && ov.r <= ov.w && ov.sx <= ov.w, JSON.stringify(ov));
+await page.screenshot({ path: 'shots/pick-mobile.png' });
+ok('no page errors', errors.length === 0, errors.join('|'));
+console.log(`\n${pass} passed, ${fail} failed`); await browser.close(); server.close(); process.exit(fail ? 1 : 0);

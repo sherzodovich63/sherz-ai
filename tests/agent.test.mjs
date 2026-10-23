@@ -118,7 +118,7 @@ test('HTTP: propose → pending → edit → approve; dev fallback user; bad inp
   const ap = await call(`/${p.j.action.id}/approve`, 'POST', { planHash: e.j.action.planHash });
   assert.equal(ap.s, 200); assert.equal(ap.j.action.status, 'executed');
   assert.equal((await call('/propose', 'POST', { title: 'T', steps: [{ tool: 'nope' }] })).s, 400);
-  const tl = (await call('/tools')).j.tools; assert.equal(tl.length, 15);
+  const tl = (await call('/tools')).j.tools; assert.equal(tl.length, 17);
   assert.deepEqual(tl.filter((t) => t.target === 'helper').map((t) => t.name).sort(), ['files.delete', 'files.list', 'files.mkdir', 'files.move', 'files.read', 'files.write']);
   // dev fallback: no req.user → ?userId / 'u1'
   const r = await fetch(base + '/pending?userId=zed'); assert.equal(r.status, 200);

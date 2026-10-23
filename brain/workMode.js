@@ -6,6 +6,8 @@
 // cripple code generation; the core persona (honesty, independent judgment), the user's long-term memory and
 // the safety gate stay exactly as in normal chat.
 
+import { buildMindsetBlock } from './roleMindset.js';
+
 /** one directive per work style (the Space profile text still comes after and the user's request always wins) */
 export const STYLE_DIRECTIVES = {
   general: 'STYLE — Balanced: clear and practical. Lead with a ready-to-use answer, then brief reasoning.',
@@ -47,7 +49,8 @@ function buildSpaceModeBlock({ projectName, space }) {
 }
 
 export function buildWorkModeBlock({ projectName, description, space = null } = {}) {
-  if (space && normalizeStyle(space.style) !== 'technical') return buildSpaceModeBlock({ projectName, space }) + (space.block ? '\n\n' + space.block : '');
+  const mindset = space ? '\n\n' + buildMindsetBlock({ name: space.name, role: space.role }) : '';           // role lock + working standard (Work Spaces only)
+  if (space && normalizeStyle(space.style) !== 'technical') return buildSpaceModeBlock({ projectName, space }) + mindset + (space.block ? '\n\n' + space.block : '');
   const name = String(projectName || 'Project').replace(/["\n\r]/g, ' ').slice(0, 80);
   const goal = String(description || '').replace(/[\n\r]+/g, ' ').slice(0, 400);
   return [
@@ -72,7 +75,7 @@ export function buildWorkModeBlock({ projectName, description, space = null } = 
     '',
     'TONE: professional, direct, collaborative. Keep the honest, independent stance from your core character (push back on flawed plans, with reasons). If the user clearly signals personal distress, acknowledge it briefly and humanely, then offer to continue or pause — safety rules still apply.',
     'Always reply in the user\'s language (Uzbek, Russian or English); keep code, identifiers and technical terms in their original form.',
-  ].join('\n') + (space && space.block ? '\n\n' + space.block : '');
+  ].join('\n') + mindset + (space && space.block ? '\n\n' + space.block : '');
 }
 
 /**

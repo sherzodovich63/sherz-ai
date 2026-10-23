@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
 import { spacesDb } from './helpers/spacesDb.mjs';
-import { createSpace, updateSpace, archiveSpace, deleteSpace, listSpaces, openSpaceConversation, loadWorkMode, cleanSpace, PRESETS, MAX_SPACES } from '../lib/spaces.js';
+import { createSpace, updateSpace, archiveSpace, deleteSpace, listSpaces, openSpaceConversation, loadWorkMode, cleanSpace, PRESETS, MAX_SPACES, MAX_ROLES, setSecondRole, removeSecondRole, setActiveRole, pickSpace, needsPick } from '../lib/spaces.js';
 import { teachSkill, recordUse } from '../lib/skills.js';
 import { buildSpaceBlock, TRUST_RULES } from '../brain/spaceContext.js';
 import { buildWorkModeBlock, composeSystemPrompt } from '../brain/workMode.js';
@@ -11,19 +11,20 @@ import { workModeFor } from '../lib/conversations.js';
 
 const U = 'u1';
 
-test('create: preset fills defaults, names unique (case-insensitive), caps, validation', async () => {
+test('create: preset fills defaults; ONE Work Space per user; validation', async () => {
   const db = spacesDb();
   const s = await createSpace(db, U, { name: 'Amazon Relay Dispatcher', preset: 'dispatcher' });
   assert.equal(s.style, 'operational'); assert.equal(s.preset, 'logistics.dispatcher'); assert.match(s.instructions, /rate/i); assert.equal(s.icon, 'truck');
-  await assert.rejects(() => createSpace(db, U, { name: 'amazon relay dispatcher' }), /already have/);
-  assert.equal((await createSpace(db, 'u2', { name: 'amazon relay dispatcher' })).name, 'amazon relay dispatcher');   // per user
-  await assert.rejects(() => createSpace(db, U, { name: '   ' }), /name required/);
-  await assert.rejects(() => createSpace(db, U, { name: 'x', instructions: 'a'.repeat(2001) }), /too long/);
-  const d = await createSpace(db, U, { name: 'Dev', preset: 'developer', icon: 'nope', color: 'nope' });
+  assert.equal(MAX_SPACES, 1); assert.equal(MAX_ROLES, 2);
+  assert.deepEqual(s.roles.map((r) => r.n), [1]); assert.equal(s.activeRole, 1); assert.equal(s.canAddRole, true);
+  await assert.rejects(() => createSpace(db, U, { name: 'Another one' }), /already have your Work Space/);          // a second Space is refused …
+  assert.equal(db.T.workSpace.length, 1);
+  assert.equal((await createSpace(db, 'u2', { name: 'amazon relay dispatcher' })).name, 'amazon relay dispatcher');   // … but every user has their own
+  await assert.rejects(() => createSpace(db, 'u3', { name: '   ' }), /name required/);
+  await assert.rejects(() => createSpace(db, 'u3', { name: 'x', instructions: 'a'.repeat(2001) }), /too long/);
+  const d = await createSpace(db, 'u4', { name: 'Dev', preset: 'developer', icon: 'nope', color: 'nope' });
   assert.equal(d.style, 'technical'); assert.equal(d.icon, 'code'); assert.equal(d.color, 'violet');
-  const bogus = await createSpace(db, U, { name: 'B', preset: '__proto__' }); assert.equal(bogus.preset, 'blank');
-  for (let i = 0; db.T.workSpace.filter((x) => x.userId === U).length < MAX_SPACES; i++) await createSpace(db, U, { name: 'fill ' + i });
-  await assert.rejects(() => createSpace(db, U, { name: 'over' }), /too many/);
+  const bogus = await createSpace(db, 'u5', { name: 'B', preset: '__proto__' }); assert.equal(bogus.preset, 'blank');
 });
 
 test('update renames space chats; archive hides; permanent delete wipes chats, messages, skills', async () => {
@@ -39,7 +40,7 @@ test('update renames space chats; archive hides; permanent delete wipes chats, m
   assert.equal(await updateSpace(db, 'u2', s.id, { name: 'x' }), null);
   await teachSkill(db, U, s.id, { name: 'Essay', summary: 's', body: 'abc' });
   await db.message.create({ data: { userId: U, conversationId: o.conversation.id, text: 'hi' } });
-  const other = await createSpace(db, U, { name: 'Keep' }); await teachSkill(db, U, other.id, { name: 'Keepskill', summary: 's', body: 'abc' });
+  const other = await createSpace(db, 'u2', { name: 'Keep' }); await teachSkill(db, 'u2', other.id, { name: 'Keepskill', summary: 's', body: 'abc' });
   assert.equal((await listSpaces(db, U)).find((x) => x.id === s.id).skillCount, 1);
   assert.equal(await archiveSpace(db, U, s.id), true);
   assert.ok(!(await listSpaces(db, U)).some((x) => x.id === s.id)); assert.equal(await openSpaceConversation(db, U, s.id), null);
@@ -216,4 +217,63 @@ test('HTTP: /generate (template without llm; AI with llm), validation 400, hourl
     t += 3600001; assert.equal((await a.j('POST', '/generate', { description: 'ward nurse' })).status, 200);       // window passes
   } finally { a.close(); }
   const b = await serve(db); try { const r = await b.j('POST', '/generate', { description: 'freight dispatcher' }); assert.equal(r.body.source, 'template'); assert.equal(r.body.matched, 'logistics.dispatcher'); } finally { b.close(); }
+});
+
+test('roles: a second role can be added, switched, edited and removed — inside the SAME Work Space (skills and chats are shared)', async () => {
+  const db = spacesDb();
+  const s = await createSpace(db, U, { name: 'Dispatcher', preset: 'dispatcher' });
+  await teachSkill(db, U, s.id, { name: 'Tender check', summary: 's', body: 'abc' });
+  const o = await openSpaceConversation(db, U, s.id);
+  const two = await setSecondRole(db, U, s.id, { name: 'TDIU Student', preset: 'student' });
+  assert.equal(two.activeRole, 2); assert.equal(two.name, 'TDIU Student'); assert.equal(two.canAddRole, false); assert.deepEqual(two.roles.map((r) => r.name), ['Dispatcher', 'TDIU Student']);
+  assert.equal(db.T.workSpace.length, 1); assert.equal(db.T.conversation[0].title, 'TDIU Student');                       // one row, one chat; the title follows the active role
+  let wm = await loadWorkMode(db, U, { ...o.conversation, kind: 'space', spaceId: s.id }, 'tender');
+  assert.match(wm.space.block, /TDIU Student/); assert.ok(!/Dispatcher/.test(wm.space.block.split('\n')[0])); assert.equal(wm.space.id, s.id);
+  assert.match(wm.space.block, /Tender check/);                                                                                 // the skill is the Work Space's, whichever role is active
+  assert.equal((await updateSpace(db, U, s.id, { role: 'Economics tutor' })).roles[1].role, 'Economics tutor');                 // editing while role 2 is active edits role 2
+  assert.equal(db.T.workSpace[0].name, 'Dispatcher');
+  const back = await setActiveRole(db, U, s.id, 1); assert.equal(back.name, 'Dispatcher'); assert.equal(db.T.conversation[0].title, 'Dispatcher');
+  wm = await loadWorkMode(db, U, { ...o.conversation, kind: 'space', spaceId: s.id }, 'x'); assert.match(wm.space.block.split('\n')[0], /Dispatcher/);
+  await assert.rejects(() => setActiveRole(db, U, s.id, 3), /1 or 2/);
+  const gone = await removeSecondRole(db, U, s.id); assert.equal(gone.roles.length, 1); assert.equal(gone.activeRole, 1); assert.equal(gone.canAddRole, true);
+  await assert.rejects(() => setActiveRole(db, U, s.id, 2), /no second role/);
+  assert.equal(await setSecondRole(db, 'u2', s.id, { name: 'x' }), null); assert.equal(await setActiveRole(db, 'u2', s.id, 1), null);   // not theirs
+  await assert.rejects(() => setSecondRole(db, U, s.id, { name: '  ' }), /name required/);
+});
+
+test('migration: an older account with several Spaces must pick one — nothing is merged or deleted automatically', async () => {
+  const db = spacesDb();
+  const mk = (name, preset) => db.workSpace.create({ data: { userId: U, name, preset, style: 'general', icon: 'briefcase', color: 'violet', instructions: name + ' rules' } });   // rows from before the rule
+  const a = await mk('Dispatch', 'logistics.dispatcher'), b = await mk('Study', 'blank'), c = await mk('Dev', 'blank');
+  await teachSkill(db, U, a.id, { name: 'Shared', summary: 's', body: 'abc' }); await teachSkill(db, U, b.id, { name: 'Shared', summary: 's', body: 'abc' }); await teachSkill(db, U, b.id, { name: 'Essay', summary: 's', body: 'abc' });
+  const list = await listSpaces(db, U); assert.equal(needsPick(list), true); assert.equal(list.length, 3);                     // all three still work until the user chooses
+  assert.equal(needsPick([list[0]]), false);
+  assert.equal(await pickSpace(db, U, { id: 'nope' }), null); assert.equal(await pickSpace(db, 'u2', { id: a.id }), null); assert.equal(await pickSpace(db, U, { id: a.id, secondId: 'nope' }), null);
+  const kept = await pickSpace(db, U, { id: a.id, secondId: b.id });
+  assert.equal(kept.name, 'Dispatch'); assert.deepEqual(kept.roles.map((r) => r.name), ['Dispatch', 'Study']); assert.equal(kept.activeRole, 1);
+  const after = await listSpaces(db, U); assert.equal(after.length, 1); assert.equal(needsPick(after), false);
+  assert.equal(db.T.workSpace.length, 3); assert.ok(db.T.workSpace.find((x) => x.id === c.id).archivedAt);                     // archived, not deleted
+  const names = db.T.skill.filter((k) => k.spaceId === a.id).map((k) => k.name).sort(); assert.deepEqual(names, ['Essay', 'Shared']);   // 2nd Space's skills came along; the name clash kept the original
+  assert.equal(after[0].skillCount, 2);
+  await assert.rejects(() => createSpace(db, U, { name: 'New' }), /already have your Work Space/);
+  const solo = await pickSpace(db, U, { id: a.id }); assert.equal(solo.roles.length, 2);                                          // picking again changes nothing else
+});
+
+test('routes: pick / role2 / active-role / needsPick, owner only', async () => {
+  const db = spacesDb(); const app = express(); app.use(express.json()); app.use((req, _r, n) => { req.user = { id: req.headers['x-user'] || U }; n(); }); app.use('/api/spaces', spacesRouter({ prisma: db, isProd: true }));
+  const srv = app.listen(0); const base = `http://127.0.0.1:${srv.address().port}/api/spaces`;
+  const j = async (m, path, body, user) => { const r = await fetch(base + path, { method: m, headers: { 'Content-Type': 'application/json', ...(user ? { 'x-user': user } : {}) }, body: body ? JSON.stringify(body) : undefined }); return { status: r.status, body: await r.json().catch(() => ({})) }; };
+  try {
+    const a = await db.workSpace.create({ data: { userId: U, name: 'A', instructions: '' } }); const b = await db.workSpace.create({ data: { userId: U, name: 'B', instructions: '' } });
+    let g = await j('GET', ''); assert.equal(g.body.needsPick, true); assert.deepEqual(g.body.limits, { spaces: 1, roles: 2 });
+    assert.equal((await j('POST', '', { name: 'C' })).status, 400);
+    assert.equal((await j('POST', '/pick', { id: a.id }, 'u2')).status, 404);
+    const p = await j('POST', '/pick', { id: a.id, secondId: b.id }); assert.equal(p.status, 200); assert.equal(p.body.spaces.length, 1);
+    g = await j('GET', ''); assert.equal(g.body.needsPick, false); assert.equal(g.body.spaces[0].roles.length, 2);
+    assert.equal((await j('POST', `/${a.id}/active-role`, { role: 2 })).body.space.name, 'B');
+    assert.equal((await j('POST', `/${a.id}/active-role`, { role: 5 })).status, 400);
+    assert.equal((await j('DELETE', `/${a.id}/role2`)).body.space.roles.length, 1);
+    const put = await j('PUT', `/${a.id}/role2`, { name: 'Dev', preset: 'developer' }); assert.equal(put.body.space.activeRole, 2); assert.equal(put.body.space.style, 'technical');
+    assert.equal((await j('PUT', `/${a.id}/role2`, { name: 'Hack' }, 'u2')).status, 404);
+  } finally { srv.close(); }
 });

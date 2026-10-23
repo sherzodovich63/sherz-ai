@@ -22,7 +22,7 @@ test('brain: per-user state isolation + no canned replies', () => {
     'brain/responseComposer.js',
     'brain/corePersona.js',
     'brain/friendBrainStore.js',
-    'brain/workMode.js',
+    'brain/workMode.js', 'brain/roleMindset.js', 'lib/locale.js',
   ]));
   assert.equal(r.bob, 'null', "bob must not inherit alice's HELP phase");
   assert.equal(r.alice2, 'HELP', 'alice keeps her own phase');

@@ -24,6 +24,7 @@ import { loadProfileSummary, buildProfileSummaryBlock } from '../memory/profileS
 // lines 307-452 — moved to its own file so runExpertTurn.js can reuse the
 // exact same memory integration instead of a third copy of it).
 import { buildFullSystemContext } from './systemContext.js';
+import { withLanguage } from '../lib/locale.js';
 import { workModelName, WORK_TIMEOUT_MS } from './workMode.js'; // ✅ Project → Work/Engineering mode
 
 // ✅ FAZA 6 LAB1: Continue + BrainState (NEW)
@@ -216,7 +217,7 @@ async function handleContinueFromLast({ prisma, userId }) {
   };
 }
 
-export async function runBrain({ userId, messages, prisma, image, maxToolHops = 3, onToken, workMode = null }) {
+export async function runBrain({ userId, messages, prisma, image, maxToolHops = 3, onToken, workMode = null, lang = null }) {
   console.log('🧠 SHERZ Brain called (Friend Mode + Deep Context)', {
     userId,
     msgCount: messages.length,
@@ -324,7 +325,7 @@ export async function runBrain({ userId, messages, prisma, image, maxToolHops = 
 
   // 6) Modelga boradigan messages
   const finalMessages = [
-    { role: 'system', content: systemPrompt },
+    { role: 'system', content: withLanguage(systemPrompt, lang) },
     ...messages
       .filter((m) => m?.role === 'user' || m?.role === 'assistant')
       .map((m) => ({

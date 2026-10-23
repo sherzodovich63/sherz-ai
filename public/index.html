@@ -1244,10 +1244,10 @@ html.platform-ios body {
             <div id="hubActions" class="hub-actions" hidden>
               <button id="hubSkills" class="hub-chip" type="button">★ Skills <span id="hubSkillCount" class="hub-chip-n">0</span></button>
               <button id="hubEdit" class="hub-chip" type="button">Edit profile</button>
+              <button id="hubAddRole" class="hub-chip" type="button" hidden>+ 2nd role</button>
             </div>
             <div id="spaceMenu" class="hub-menu" role="listbox" aria-label="Your Work Spaces" hidden>
               <div id="spaceList" class="hub-list"></div>
-              <button id="newSpaceBtn" class="hub-create" type="button"><span class="hub-create-plus" aria-hidden="true">+</span><span><b>Create a Work Space</b><small>Pick a role or describe yours</small></span></button>
             </div>
           </section>
 
@@ -1271,7 +1271,7 @@ html.platform-ios body {
               <button id="projectCreate" class="pf-create" type="submit">Create project</button>
               <button id="projectCancel" class="pf-cancel" type="button">Cancel</button>
             </div>
-            <p class="pf-hint">Inside a project SHERZ switches to <b>Work mode</b>: deep problem solving, code and architecture.</p>
+            <p class="pf-hint" data-i18n-html="pfHint">Inside a project SHERZ switches to <b>Work mode</b>: deep problem solving, code and architecture.</p>
           </form>
 
           <div class="menu-search">
@@ -1299,6 +1299,13 @@ html.platform-ios body {
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>Light
                   </button>
                 </div>
+                <div class="hub-label" id="langLabel">Language</div>
+                <div class="seg" id="langSeg" role="radiogroup" aria-labelledby="langLabel">
+                  <button type="button" class="seg-btn" role="radio" aria-checked="false" data-lang-pref="auto">Auto</button>
+                  <button type="button" class="seg-btn" role="radio" aria-checked="false" data-lang-pref="uz" data-no-i18n>O‘zbek</button>
+                  <button type="button" class="seg-btn" role="radio" aria-checked="false" data-lang-pref="en" data-no-i18n>English</button>
+                  <button type="button" class="seg-btn" role="radio" aria-checked="false" data-lang-pref="ru" data-no-i18n>Русский</button>
+                </div>
                 <div class="hub-label" id="accentLabel">Accent glow</div>
                 <div class="swatches" id="accentSw" role="radiogroup" aria-labelledby="accentLabel">
                   <button type="button" class="sw" role="radio" aria-checked="false" data-accent="violet" title="Violet" aria-label="Violet"><i></i><span>Violet</span></button>
@@ -1308,24 +1315,18 @@ html.platform-ios body {
                 </div>
               </div>
 
-              <div class="hub-sec">
-                <h4 class="hub-h">Voice &amp; tools</h4>
-                <div class="hub-list">
-                  <button id="ttsBtn" class="btn" type="button">🔊 Voice</button>
-                  <div class="hub-row">
-                    <button id="mic" class="btn" type="button">🎙 Mic</button>
-                    <button id="micStop" class="btn" type="button" style="display:none">⏹ Stop</button>
-                  </div>
-                  <button id="clear" class="btn" type="button" hidden>🗑 Delete this project</button>
-                </div>
+              <div class="hub-sec" id="hubProjectSec">
+                <button id="clear" class="btn" type="button" hidden>🗑 Delete this project</button>
               </div>
 
-              <div class="hub-sec">
-                <h4 class="hub-h">Knowledge (Facts)</h4>
-                <div id="factsBox" class="hub-list"></div>
-                <h4 class="hub-h">Eslatmalar</h4>
-                <div id="remBox" class="hub-list"></div>
-                <button id="refreshBtn" class="btn" type="button" style="margin-top:8px">↻ Yangilash</button>
+              <!-- kept in the DOM (hidden) so existing voice / refresh wiring keeps working; no longer shown in the sidebar -->
+              <div id="hubLegacy" hidden aria-hidden="true">
+                <button id="ttsBtn" class="btn" type="button">🔊 Voice</button>
+                <button id="mic" class="btn" type="button">🎙 Mic</button>
+                <button id="micStop" class="btn" type="button" style="display:none">⏹ Stop</button>
+                <div id="factsBox"></div>
+                <div id="remBox"></div>
+                <button id="refreshBtn" class="btn" type="button">↻ Yangilash</button>
               </div>
             </section>
 
@@ -1383,10 +1384,7 @@ html.platform-ios body {
        </div> </div>
 
 
-      <div class="kbd-row">
-        <div><span class="kbd">Enter</span> send • <span class="kbd">Shift</span> + <span class="kbd">Enter</span> newline</div>
-        <button id="refreshBtn" class="btn" type="button">↻ Yangilash</button>
-      </div>
+      <div class="ai-note" role="note">SHERZ is AI and can make mistakes.</div>
 
       <div id="composerHint" class="composer-hint"></div>
 </footer>
@@ -1416,6 +1414,24 @@ html.platform-ios body {
 
 
     </div>
+
+  <div id="pickModal" class="sp-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="pkTitle">
+    <div class="sp-sheet">
+      <header class="sp-head"><h2 id="pkTitle">Choose your Work Space</h2></header>
+      <div class="sp-body">
+        <p class="pk-text" data-i18n-html="pkText">SHERZ now keeps <b>one</b> Work Space per person, with up to <b>two roles</b> inside it. Pick the one to keep. Nothing is deleted: the others are archived.</p>
+        <div class="sp-label" id="pkKeepLabel">Keep this Work Space</div>
+        <div id="pkList" class="pk-list" role="radiogroup" aria-labelledby="pkKeepLabel"></div>
+        <div class="sp-label" id="pkSecondLabel">Optional: add another as your second role</div>
+        <div id="pkSecond" class="pk-list" role="radiogroup" aria-labelledby="pkSecondLabel"></div>
+        <div id="pkError" class="pf-error" role="alert" hidden></div>
+        <div class="pf-actions">
+          <button id="pkSave" class="pf-create" type="button">Keep this Work Space</button>
+          <button id="pkLater" class="pf-cancel" type="button">Later</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <div id="spaceModal" class="sp-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="spTitle">
   <div class="sp-sheet">
@@ -1459,7 +1475,7 @@ html.platform-ios body {
       </div>
     </form>
     <div id="spSkills" class="sp-body" hidden>
-      <p class="sp-hint">Skills are procedures you teach this Space. SHERZ uses the ones that match your message. Levels come from your approvals, never from SHERZ’s own opinion.</p>
+      <p class="sp-hint" data-i18n-html="spHint">Skills are procedures you teach this Space. SHERZ uses the ones that match your message. Levels come from your approvals, never from SHERZ’s own opinion.</p>
       <div id="spSkillList" class="sp-skill-list"></div>
       <form id="spSkillForm" class="sp-skill-form" autocomplete="off">
         <div class="sp-label" id="spSkillFormTitle">Teach a skill</div>
@@ -1675,7 +1691,7 @@ html.platform-ios body {
       guestView.style.display = isAuthenticatedUser ? 'none' : '';
       userView.style.display  = isAuthenticatedUser ? '' : 'none';
       if (isAuthenticatedUser){
-        if ($('userName'))  $('userName').textContent  = authUser.name  || 'User';
+        if ($('userName'))  $('userName').textContent  = displayName();
         if ($('userEmail')) $('userEmail').textContent = authUser.email || '';
       }
     }
@@ -2150,7 +2166,9 @@ html.platform-ios body {
     }
     // One place builds the request: multipart when a picture is attached, JSON otherwise.
     function buildChatRequest(q, file, expert){
-      const base = { message: q, userId: GUEST_ID, conversationId: currentConvId || 'new' };
+      const uiLang = (window.SherzI18n && window.SherzI18n.lang) || 'uz';          // the language picked in Appearance, or the device language
+      histCache.delete(currentConvId);                              // a new turn is about to be saved: the cached copy of this thread would miss it
+      const base = { message: q, userId: GUEST_ID, conversationId: currentConvId || 'new', lang: uiLang };
       if (expert) base.expertMode = true;                         // "/agent …" → Expert Mode, where the model may PROPOSE plans
       if (file){
         const fd = new FormData();                               // NB: no manual Content-Type — the browser adds the boundary
@@ -2158,7 +2176,7 @@ html.platform-ios body {
         Object.keys(base).forEach(k=>fd.append(k, String(base[k])));
         return { headers:{}, body: fd };
       }
-      return { headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ...base, ui:{ tone:'normal', lang:'uz' } }) };
+      return { headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ...base, ui:{ tone:'normal', lang:uiLang } }) };
     }
     // Reads text + attachment from the composer, shows the bubble, sends once.
     async function submitComposer(){
@@ -2172,6 +2190,7 @@ html.platform-ios body {
       if (/^\/autonomy\b/i.test(msg)){ ta.value = ''; autonomyCommand(); return; }
       if (/^\/rules\b/i.test(msg)){ ta.value = ''; rulesCommand(); return; }
       if (/^\/files\b/i.test(msg)){ ta.value = ''; filesCommand(); return; }
+      { const ad = /^\/autodownload\b\s*(on|off)?/i.exec(msg); if (ad){ ta.value = ''; autoDownloadCommand(ad[1] ? ad[1].toLowerCase() : ''); return; } }
       const slash = /^\/agent\b\s*/i.exec(msg);                  // "/agent make a note called ideas.md …"
       if (slash){ expert = true; msg = msg.slice(slash[0].length).trim(); }
       if (!msg && !file) return;
@@ -2428,7 +2447,7 @@ html.platform-ios body {
     // =========================
     const fmtB = (n)=> n < 1024 ? n + ' B' : n < 1048576 ? (n/1024).toFixed(1) + ' KB' : (n/1048576).toFixed(1) + ' MB';
     function filesFetch(path, opt){ return fetchWithAuth(apiUrl('/api/files' + path), opt || {}); }
-    const fileIcon = (n)=> /\.xlsx$/i.test(n) ? '📊' : /\.pdf$/i.test(n) ? '📕' : /\.pptx$/i.test(n) ? '📽️' : '📝';
+    const fileIcon = (n)=> /\.xlsx$/i.test(n) ? '📊' : /\.pdf$/i.test(n) ? '📕' : /\.pptx$/i.test(n) ? '📽️' : /\.(png|jpe?g|webp)$/i.test(n) ? '🖼️' : /\.(txt|md)$/i.test(n) ? '📄' : '📝';
     function paintFiles(el, d){
       const rows = (d.files || []).map((f)=>`<li class="plan-step"><div class="plan-step-main"><div class="plan-sum">${fileIcon(f.name)} ${esc(f.name)}</div><div class="plan-meta"><span class="plan-note">${esc(fmtB(f.size))} · ${f.source === 'uploaded' ? 'uploaded' : 'made by SHERZ'} · ${esc(new Date(f.createdAt).toLocaleDateString())}</span><button class="plan-btn primary" data-file-dl="${esc(f.id)}" data-file-name="${esc(f.name)}">⬇ Download</button><button class="plan-btn danger" data-file-del="${esc(f.id)}">Delete</button></div></div></li>`).join('');
       const u = d.usage || { count: 0, bytes: 0 }, q = d.quota || { files: 40, bytes: 60*1048576 };
@@ -2549,6 +2568,50 @@ html.platform-ios body {
       if (Array.isArray(o.files)) return o.files.length ? o.files.join(', ') : 'no notes yet';
       const t = JSON.stringify(o); return t.length > 140 ? t.slice(0,140) + '…' : t;
     }
+    // Files you explicitly asked for are saved to your device by themselves (once per plan). Turn it off or on with /autodownload off|on.
+    const autoDlOn = ()=>{ try{ return localStorage.getItem('sherz.autoDownload') !== '0'; }catch(e){ return true; } };
+    const dlDone = new Set();
+    async function autoDownloadFile(id, name){
+      try {
+        const r = await filesFetch('/' + encodeURIComponent(id) + '/download');
+        if (!r.ok) throw new Error('not found');
+        const url = URL.createObjectURL(await r.blob()), a = document.createElement('a');
+        a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url), 4000);
+      } catch (e) { /* the Download button on the card is still there */ }
+    }
+    function maybeAutoDownload(plan){
+      try {
+        if (!autoDlOn() || !plan || plan.status !== 'executed' || !plan.auto || plan.auto.grant !== 'explicit_request' || dlDone.has(plan.id)) return;
+        let seen = false; try{ seen = sessionStorage.getItem('sherz.dl.' + plan.id) === '1'; }catch(e){}
+        dlDone.add(plan.id); if (seen) return;                                       // a reloaded page never downloads old files again
+        try{ sessionStorage.setItem('sherz.dl.' + plan.id, '1'); }catch(e){}
+        (plan.results || []).filter((r)=>r && r.status === 'ok' && r.output && r.output.fileId && !/^image\//.test(r.output.mime || ''))
+          .forEach((r, i)=>setTimeout(()=>autoDownloadFile(r.output.fileId, r.output.filename || 'file'), 300 * i));
+      } catch (e) { /* never break the card */ }
+    }
+    function autoDownloadCommand(mode){
+      if (mode === 'on' || mode === 'off'){ try{ localStorage.setItem('sherz.autoDownload', mode === 'on' ? '1' : '0'); }catch(e){} }
+      agentNotice(`Automatic download is ${autoDlOn() ? 'ON' : 'OFF'}. When you ask SHERZ for a file, it is saved to your device as soon as it is created${autoDlOn() ? '' : ' (now you press its Download button instead)'}. Change it with /autodownload on or /autodownload off.`);
+    }
+    // ── live status while SHERZ builds a file or draws a picture ──
+    const genEls = new Map();
+    function genProgress(p){
+      try{
+        if (!p || !p.id) return;
+        let el = genEls.get(p.id);
+        if (p.state !== 'running'){ if (el){ clearInterval(el._t); el.remove(); genEls.delete(p.id); } return; }   // done / failed / cancelled: the plan card (or the reply) takes over
+        if (!el){
+          el = document.createElement('div'); el.className = 'bubble ai gen-progress'; el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite');
+          el.innerHTML = '<span class="gp-spin" aria-hidden="true"></span><span class="gp-label"></span><span class="gp-time"></span><span class="gp-bar" aria-hidden="true"></span>';
+          el.dataset.kind = p.kind || 'file'; el._t0 = Date.now();
+          el._t = setInterval(() => { if (!el.isConnected){ clearInterval(el._t); return; } const sec = Math.floor((Date.now() - el._t0) / 1000); el.querySelector('.gp-time').textContent = sec >= 3 ? sec + 's' : ''; }, 1000);
+          feed.appendChild(el); genEls.set(p.id, el);
+        }
+        el.querySelector('.gp-label').textContent = String(p.label || '⏳ Generating…');
+        feed.scrollTop = feed.scrollHeight;
+      }catch(e){ /* status only */ }
+    }
+    function genProgressClear(){ for (const [id, el] of genEls){ clearInterval(el._t); el.remove(); genEls.delete(id); } }
     const autoSeen = new Set();
     function renderPlanCard(plan){
       if (!plan || !plan.id) return;
@@ -2561,6 +2624,7 @@ html.platform-ios body {
         feed.appendChild(el);
       }
       el._plan = plan;
+      maybeAutoDownload(plan);
       if (plan.auto && plan.run && !autoSeen.has(plan.id)){                   // Phase 3c: it already ran by itself — the task may want a follow-up turn
         autoSeen.add(plan.id);
         if (plan.run.canContinue) setTimeout(()=>continueTask(plan.run.id, 'result'), 0);
@@ -2591,7 +2655,11 @@ html.platform-ios body {
       else if (pending && el._edit) foot = `<div class="plan-actions"><button class="plan-btn primary" data-act="save">Save changes</button><button class="plan-btn" data-act="cancel">Cancel</button></div>${el._err ? `<div class="plan-err">${esc(el._err)}</div>` : ''}`;
       else if (pending) foot = `<div class="plan-actions"><button class="plan-btn primary" data-act="approve">Approve &amp; Execute</button>${p.offer && p.offer.tools && p.offer.tools.length ? '<button class="plan-btn" data-act="approve-always" title="Approve this plan and let SHERZ run this kind of step by itself once the habit reaches High confidence">Approve &amp; always allow</button>' : ''}<button class="plan-btn" data-act="edit">Edit</button><button class="plan-btn danger" data-act="reject">Reject</button></div><div class="plan-note">Nothing runs until you approve${p.habit ? ' — a learned habit never skips this' : ''}. Expires ${new Date(p.expiresAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}.${p.edited ? ' You edited this plan.' : ''}</div>${el._err ? `<div class="plan-err">${esc(el._err)}</div>` : ''}`;
       else banner = { executed:'✓ Executed', failed:'✗ Stopped — a step failed', rejected:'Rejected — nothing was run', expired:'Expired — nothing was run' }[p.status] || p.status;
-      if (p.auto && (p.status === 'executed' || p.status === 'failed')){
+      if (p.auto && p.auto.grant === 'explicit_request' && (p.status === 'executed' || p.status === 'failed')){
+        const onlyPics = (p.results || []).length > 0 && (p.results || []).every((r)=>!r.output || /^image\//.test(r.output.mime || ''));
+        banner = p.status === 'executed' ? '✓ Created — you asked for it in this chat' + (autoDlOn() && !onlyPics ? ' · saved to your device' : '') : '✗ Stopped — a step failed';
+        foot = `<details class="plan-note"><summary>Why didn’t SHERZ ask first?</summary>${esc(p.auto.thought || 'You asked for this file here, and it only lands in your own SHERZ files.')}</details>${el._err ? `<div class="plan-err">${esc(el._err)}</div>` : ''}`;
+      } else if (p.auto && (p.status === 'executed' || p.status === 'failed')){
         const lv = (p.auto.basis || []).map((b)=>b.count).filter(Boolean); const n = lv.length ? Math.min.apply(null, lv) : 0;
         banner = (p.status === 'executed' ? '⚡ Ran automatically' : '⚡ Ran automatically — a step failed') + (n ? ` — you approved this kind of step ${n}× before` : '');
         foot = `<div class="plan-actions"><button class="plan-btn danger" data-act="auto-stop">Stop doing this automatically</button>${p.auto.undoable ? '<button class="plan-btn" data-act="auto-undo">Undo (asks first)</button>' : ''}</div>${el._note ? `<div class="plan-note">${esc(el._note)}</div>` : ''}${el._err ? `<div class="plan-err">${esc(el._err)}</div>` : ''}`;
@@ -2599,6 +2667,32 @@ html.platform-ios body {
       el.innerHTML = `<div class="plan-head"><span class="plan-title">🛡️ ${esc(p.title || 'Execution plan')}</span>${p.habit ? `<span class="plan-chip habit habit-${esc(p.habit.level)}">🧠 ${esc(p.habit.label)}</span>` : ''}<span class="plan-chip risk-${esc(p.risk)}">${esc(RISK_TXT[p.risk] || p.risk)}</span></div>
         <ol class="plan-steps">${steps}</ol>${banner ? `<div class="plan-banner st-${esc(p.status)}">${banner}</div>` : ''}${foot}`;
       el._raw = `${p.title || 'Execution plan'}\n` + (p.steps || []).map((s, i)=>`${i + 1}. ${s.summary || s.tool}`).join('\n');
+      paintPlanImages(el);
+    }
+    // A generated picture is shown right in the chat. The file route needs the login header, so the picture is fetched as a blob (never a public link).
+    const imgUrls = new Map();
+    async function paintPlanImages(el){
+      try{
+        const p = el._plan; if (!p || !Array.isArray(p.results)) return;
+        for (const r of p.results){
+          const o = r && r.status === 'ok' && r.output; if (!o || !o.fileId || !/^image\//.test(o.mime || '')) continue;
+          const li = el.querySelectorAll('.plan-step')[r.i]; if (!li || li.querySelector('.plan-img')) continue;
+          const box = document.createElement('div'); box.className = 'plan-img is-loading'; box.setAttribute('role', 'img'); box.setAttribute('aria-label', o.filename || 'Generated picture');
+          const host = li.querySelector('.plan-step-main') || li; host.appendChild(box);
+          try{
+            let url = imgUrls.get(o.fileId);
+            if (!url){
+              const resp = await filesFetch('/' + encodeURIComponent(o.fileId) + '/download'); if (!resp.ok) throw new Error('gone');
+              url = URL.createObjectURL(await resp.blob()); imgUrls.set(o.fileId, url);
+            }
+            const im = new Image(); im.alt = o.filename || 'Generated picture'; im.decoding = 'async';
+            im.onload = () => { box.classList.remove('is-loading'); box.textContent = ''; box.appendChild(im); feed.scrollTop = feed.scrollHeight; };
+            im.onerror = () => { box.classList.remove('is-loading'); box.textContent = 'The picture could not be shown — use Download.'; };
+            im.src = url;
+            im.addEventListener('click', () => { try{ window.open(url, '_blank', 'noopener'); }catch(e){} });
+          }catch(e){ box.classList.remove('is-loading'); box.textContent = 'The picture is not available any more (it may have been deleted).'; }
+        }
+      }catch(e){ /* the card and its Download button still work */ }
     }
     async function planAct(el, act){
       const p = el._plan;
@@ -2685,6 +2779,16 @@ html.platform-ios body {
     // =========================
     // ✅ Intro (ODAMIY) + ✅ Chips (TABIIY)
     // =========================
+    async function fetchFreshIntro(){
+      const ctl = new AbortController(), timer = setTimeout(()=>ctl.abort(), 7000);
+      try {
+        let tz = ''; try{ tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; }catch(e){}
+        const r = await fetchWithAuth(apiUrl('/api/greeting?tz=' + encodeURIComponent(tz)), { signal: ctl.signal });
+        if (!r.ok) return null;
+        const j = await r.json().catch(()=>null);
+        return j && j.ok && j.source !== 'fallback' && typeof j.text === 'string' && j.text.trim().length > 2 ? j.text.trim() : null;
+      } catch (e) { return null; } finally { clearTimeout(timer); }
+    }
     async function runIntroIfEmpty(){
       const introConv = currentConvId;
       const hasBubble = Array.from(feed.children).some(el => el.classList && el.classList.contains('bubble'));
@@ -2718,12 +2822,13 @@ html.platform-ios body {
         { label: "Suhbat",   text: "Shunchaki gaplashamiz." }
       ];
 
-      const introText = INTROS[Math.floor(Math.random() * INTROS.length)];
       const suggestions = CHIPS.sort(() => Math.random() - 0.5).slice(0, 4);
 
       setStatus('responding');
       showTyping();
-      await sleep(420 + Math.floor(Math.random()*260));
+      // a fresh, curious opening written for THIS moment (time of day, what you last talked about, SHERZ's own curiosity); the fixed list above is only the offline fallback
+      const [fresh] = await Promise.all([fetchFreshIntro(), sleep(420 + Math.floor(Math.random()*260))]);
+      const introText = fresh || INTROS[Math.floor(Math.random() * INTROS.length)];
       hideTyping();
       if (introConv !== currentConvId){ setStatus('idle'); return; }   // user switched conversations meanwhile
 
@@ -3130,13 +3235,18 @@ html.platform-ios body {
               liveText += payload.delta || '';
               if (vs) vs.feed(payload.delta || ''); else applyLive();
             } else if (eventType === 'done'){
+              genProgressClear();
               finalText = payload.text ?? liveText;
               adoptConversation(payload.conversationId);
+            } else if (eventType === 'progress'){
+              genProgress(payload);                          // live "⏳ Generating … " while a file / picture is being made
             } else if (eventType === 'plan'){
+              genProgress({ id: payload && payload.id, state: 'done' });
               renderPlanCard(payload);                       // Approval Gate: the model proposed actions — nothing has run yet
             } else if (eventType === 'consent'){
               renderConsentCard(payload);                    // Phase 3: "may SHERZ read this folder?" — asked once per folder
             } else if (eventType === 'error'){
+              genProgressClear();
               throw new Error(payload.error || 'stream error');
             }
             // 'ping' events are just keepalive — nothing to do
@@ -3277,13 +3387,22 @@ html.platform-ios body {
     // Refresh
     $('refreshBtn').onclick = ()=>{ refreshFacts(); refreshReminders(); };
 
+    // internal bookkeeping (proactive pings, skill learning, tone state, summaries…) is not something the user should see
+    const SYSTEM_FACT_KEY = /^(proactive[_:]|learn[_:]|last[_:]|skill[_:]|system[_:]|internal[_:]|tmp[_:]|cache[_:]|state[_:]|tone[_:]|conversation[_:]?summary|_)/i;
+    const isSystemFactKey = (k) => SYSTEM_FACT_KEY.test(String(k || '').trim());
+    const FACTS_PREVIEW = 5; let factsAll = false;
     async function refreshFacts(){
       try{
         const uid = (GUEST_ID);
         const r = await fetchWithAuth(apiUrl(`/api/facts/${encodeURIComponent(uid)}?only=user`));
         const data = await r.json();
-        $('factsBox').innerHTML = (data.facts||[])
-          .map(f=>`<div class="item">• <b>${esc(f.key)}</b>: ${esc(f.value)}</div>`).join('') || '<i style="color:var(--muted)">Hali yo‘q</i>';
+        const mine = (data.facts||[]).filter(f=>!isSystemFactKey(f.key));
+        const shown = factsAll ? mine : mine.slice(0, FACTS_PREVIEW);               // a short preview: the sidebar has ONE scroll, so the list must not grow without limit
+        $('factsBox').innerHTML = shown.map(f=>`<div class="item">• <b>${esc(f.key)}</b>: ${esc(f.value)}</div>`).join('') || '<i style="color:var(--muted)">Hali yo‘q</i>';
+        if (mine.length > FACTS_PREVIEW){
+          const b = document.createElement('button'); b.type = 'button'; b.className = 'btn'; b.id = 'factsMore'; b.textContent = factsAll ? 'Show less' : 'Show all (' + mine.length + ')';
+          b.addEventListener('click', () => { factsAll = !factsAll; refreshFacts(); }); $('factsBox').appendChild(b);
+        }
       }catch{ $('factsBox').innerHTML = '<i style="color:var(--muted)">Yuklashda xato</i>'; }
     }
     async function refreshReminders(){
@@ -3934,14 +4053,19 @@ function hideProactiveReturnToast(){
     // =========================
     // ✅ Endless thread (server history, cursor-paginated)
     // =========================
-    const HISTORY_PAGE = 25;
-    let historyCursor = null, historyHasMore = false, historyLoading = false;
+    const HISTORY_PAGE = 20;                 // messages per request (the server allows up to 100)
+    const PREFETCH_PX = 480;                 // start loading older messages BEFORE the reader reaches the top → no visible wait
+    const HIST_CACHE_MAX = 300, HIST_CACHE_CONVS = 6;
+    let historyCursor = null, historyHasMore = false, historyLoading = false, historyRetryAt = 0;
     let currentConvId = null;      // null = a brand-new chat that has no messages yet
     let convSupported = true;      // false → server has no /api/conversations yet: behave like the old single thread
+    // Per-conversation memory of what the server already sent: switching Companion ↔ a Work Space repaints instantly
+    // (then a quiet background sync adds anything new). Only the newest HIST_CACHE_MAX messages of a thread are kept.
+    const histCache = new Map();             // convId → { msgs:[{id,role,text,ts}], cursor, hasMore }
 
     function histBubble(role, text, ts, id){
       const wrap = document.createElement('div');
-      wrap.className = role === 'ai' ? 'bubble ai hist' : 'bubble me';
+      wrap.className = role === 'ai' ? 'bubble ai hist hb' : 'bubble me hb';    // hb = "history bubble" (both sides)
       if (id) wrap.dataset.mid = id;          // server message id → needed to delete it
       let body = String(text || ''), chip = '';
       if (IMG_MARK_RE.test(body)){ body = body.replace(IMG_MARK_RE,''); chip = '<div class="msg-img-chip">\u{1F4F7} Rasm</div>'; }
@@ -3950,49 +4074,128 @@ function hideProactiveReturnToast(){
       return wrap;
     }
 
-    // initial=true → newest page, jump to bottom. Otherwise prepend the next older page and
-    // keep the reader on the same message.
+    // Paints history bubbles.  mode 'bottom' → a fresh open: jump to the newest message.
+    // mode 'older' → prepend above and keep the reader on exactly the message they were looking at (anchored by position, not by height maths,
+    // so late layout changes — images, code blocks, off-screen skipping — cannot make the screen jump).
+    function paintHistory(msgs, mode){
+      const frag = document.createDocumentFragment();
+      for (const m of msgs) frag.appendChild(histBubble(m.role, m.text, m.ts, m.id));
+      let anchor = null, anchorTop = 0;
+      if (mode === 'older'){
+        const top = feed.getBoundingClientRect().top;
+        anchor = Array.from(feed.children).find(el => el.getBoundingClientRect().bottom > top + 1) || feed.firstElementChild;
+        anchorTop = anchor ? anchor.getBoundingClientRect().top : 0;
+      }
+      feed.insertBefore(frag, feed.firstChild);
+      feed.style.scrollBehavior = 'auto';
+      if (mode === 'older' && anchor) feed.scrollTop += anchor.getBoundingClientRect().top - anchorTop;
+      else feed.scrollTop = feed.scrollHeight;
+      lastTop = feed.scrollTop;
+    }
+
+    function histCacheStore(convId, d, initial){
+      let c = histCache.get(convId);
+      if (!initial && !c) return;                                  // the newest part was discarded meanwhile (a message was sent) → never cache a thread with a hole
+      if (initial) c = { msgs: [], cursor: null, hasMore: false };
+      c.msgs = initial ? d.messages.slice() : d.messages.concat(c.msgs);
+      if (c.msgs.length > HIST_CACHE_MAX){                         // keep the newest; the cursor of the oldest kept message is computable on the client
+        c.msgs = c.msgs.slice(-HIST_CACHE_MAX);
+        c.cursor = c.msgs[0].ts + '_' + c.msgs[0].id; c.hasMore = true;
+      } else { c.cursor = d.nextCursor || null; c.hasMore = !!d.hasMore; }
+      histCache.delete(convId); histCache.set(convId, c);
+      while (histCache.size > HIST_CACHE_CONVS) histCache.delete(histCache.keys().next().value);
+    }
+
+    // initial=true → newest page, jump to bottom. Otherwise prepend the next older page and keep the reader on the same message.
     async function loadHistoryPage(initial){
       if (historyLoading || (!initial && !historyHasMore)) return false;
       if (convSupported && !currentConvId) return false;        // new chat: nothing to load
+      if (!initial && Date.now() < historyRetryAt) return false; // a failed request is retried a few seconds later, not on every scroll tick
       historyLoading = true;
+      if (!initial) feed.classList.add('loading-older');
       const myConv = currentConvId;
       try{
         const qs = new URLSearchParams({ limit: String(HISTORY_PAGE), userId: String(GUEST_ID || '') });
         if (convSupported && currentConvId) qs.set('conversationId', currentConvId);
         if (!initial && historyCursor) qs.set('before', historyCursor);
         const r = await fetchWithAuth(apiUrl('/api/chat/history?' + qs.toString()));
-        if (!r.ok) return false;
+        if (!r.ok){ historyRetryAt = Date.now() + 3000; return false; }
         const d = await r.json().catch(() => null);
-        if (!d || !d.ok || !Array.isArray(d.messages)) return false;
+        if (!d || !d.ok || !Array.isArray(d.messages)){ historyRetryAt = Date.now() + 3000; return false; }
         if (myConv !== currentConvId) return false;              // user switched chats while this was loading
 
         historyHasMore = !!d.hasMore;
         historyCursor  = d.nextCursor || null;
         if (!d.messages.length) return false;
 
-        const prevH = feed.scrollHeight, prevTop = feed.scrollTop;
-        const frag = document.createDocumentFragment();
-        for (const m of d.messages) frag.appendChild(histBubble(m.role, m.text, m.ts, m.id));
-        feed.insertBefore(frag, feed.firstChild);
-        const target = initial ? feed.scrollHeight : feed.scrollHeight - prevH + prevTop;
-        feed.style.scrollBehavior = 'auto';
-        feed.scrollTop = target;
-        lastTop = feed.scrollTop;
+        paintHistory(d.messages, initial ? 'bottom' : 'older');
+        histCacheStore(myConv, d, initial);
         return true;
       }catch(e){
+        historyRetryAt = Date.now() + 3000;
         console.warn('[history] load failed (non-fatal):', e.message);
         return false;
       }finally{
         historyLoading = false;
+        feed.classList.remove('loading-older');
+        requestAnimationFrame(maybeLoadOlder);                   // a tall screen / short messages may still show the top of the thread
       }
     }
-    let lastTop = 0;
+    // Opens a thread: from the cache when we have it (instant), otherwise from the server.
+    async function showHistory(id){
+      const c = histCache.get(id);
+      if (!c || !c.msgs.length) return loadHistoryPage(true);
+      paintHistory(c.msgs, 'bottom');
+      historyCursor = c.cursor; historyHasMore = c.hasMore;
+      syncNewest(id);                                           // quiet: adds what arrived meanwhile, drops what was deleted
+      requestAnimationFrame(maybeLoadOlder);
+      return true;
+    }
+    async function syncNewest(id){
+      try{
+        const qs = new URLSearchParams({ limit: String(HISTORY_PAGE), userId: String(GUEST_ID || '') });
+        if (convSupported) qs.set('conversationId', id);
+        const r = await fetchWithAuth(apiUrl('/api/chat/history?' + qs.toString()));
+        if (!r.ok) return;
+        const d = await r.json().catch(() => null);
+        const c = histCache.get(id);
+        if (!d || !d.ok || !Array.isArray(d.messages) || !c || currentConvId !== id) return;
+        const have = new Set(c.msgs.map(m => m.id));
+        if (d.messages.length && d.hasMore && !d.messages.some(m => have.has(m.id))){      // far more happened elsewhere than one page → start clean
+          histCache.delete(id);
+          feed.querySelectorAll('.bubble.hb').forEach(el => el.remove());
+          historyCursor = null; historyHasMore = false; historyRetryAt = 0;
+          await loadHistoryPage(true); return;
+        }
+        const serverIds = new Set(d.messages.map(m => m.id));
+        const firstTs = d.messages.length ? d.messages[0].ts : Infinity;
+        const gone = c.msgs.filter(m => m.ts >= firstTs && !serverIds.has(m.id));          // deleted elsewhere
+        const fresh = d.messages.filter(m => !have.has(m.id));
+        if (!gone.length && !fresh.length) return;
+        const goneIds = new Set(gone.map(m => m.id));
+        feed.querySelectorAll('.bubble.hb[data-mid]').forEach(el => { if (goneIds.has(el.dataset.mid)) el.remove(); });
+        c.msgs = c.msgs.filter(m => !goneIds.has(m.id)).concat(fresh);
+        if (fresh.length){
+          const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 140;
+          const frag = document.createDocumentFragment();
+          for (const m of fresh) frag.appendChild(histBubble(m.role, m.text, m.ts, m.id));
+          const hist = feed.querySelectorAll('.bubble.hb'); const last = hist.length ? hist[hist.length - 1] : null;
+          if (last) last.after(frag); else feed.appendChild(frag);
+          if (atBottom){ feed.style.scrollBehavior = 'auto'; feed.scrollTop = feed.scrollHeight; }
+        }
+      }catch(e){ console.warn('[history] sync failed (non-fatal):', e.message); }
+    }
+    let lastTop = 0, scrollTick = false;
+    function maybeLoadOlder(){
+      if (historyHasMore && !historyLoading && feed.scrollTop < PREFETCH_PX) loadHistoryPage(false);
+    }
     feed.addEventListener('scroll', () => {
-      const goingUp = feed.scrollTop < lastTop;
-      lastTop = feed.scrollTop;
-      if (goingUp && feed.scrollTop < 160 && historyHasMore && !historyLoading) loadHistoryPage(false);
-      jumpBtn.classList.toggle('show', feed.scrollHeight - feed.scrollTop - feed.clientHeight > 240);
+      if (scrollTick) return; scrollTick = true;                  // at most once per frame, however fast the wheel / finger moves
+      requestAnimationFrame(() => {
+        scrollTick = false; lastTop = feed.scrollTop;
+        maybeLoadOlder();
+        jumpBtn.classList.toggle('show', feed.scrollHeight - feed.scrollTop - feed.clientHeight > 240);
+      });
     }, { passive: true });
 
 
@@ -4007,7 +4210,7 @@ function hideProactiveReturnToast(){
     let renamingId = null, confirmDeleteId = null;
     let activeTurnAbort = null;
     let refreshTimer = null, searchSeq = 0;
-    let spaces = [], spaceMeta = { categories: [], styles: [], icons: [], colors: [], aiGenerator: false }, spacesSupported = true, editingSpace = null, skillEditId = null, spaceSkills = [];
+    let spaces = [], spaceMeta = { categories: [], styles: [], icons: [], colors: [], aiGenerator: false }, spacesSupported = true, editingSpace = null, skillEditId = null, spaceSkills = [], spaceNeedsPick = false, pickShown = false, addingRoleTo = null;
     const drafts = new Map();       // unsent text per conversation, restored when you come back
     const convKey = () => 'sherz_conv_' + (GUEST_ID || '');
     const qUser = () => 'userId=' + encodeURIComponent(GUEST_ID || '');
@@ -4162,7 +4365,7 @@ function hideProactiveReturnToast(){
       const ta = $('text');
       if (ta){ drafts.set(currentConvId, ta.value); ta.value = drafts.get(id) || ''; }
       feed.innerHTML = '';
-      historyCursor = null; historyHasMore = false; historyLoading = false;
+      historyCursor = null; historyHasMore = false; historyLoading = false; historyRetryAt = 0;
       currentConvId = id;
       try{ localStorage.setItem(convKey(), id); }catch(e){}
       renamingId = null; confirmDeleteId = null;
@@ -4170,7 +4373,7 @@ function hideProactiveReturnToast(){
       applyMode(); renderConvList(); closeMenuOnMobile();
       const work = isWorkMode();
       if (work && opts.userAction !== false) openChatBar(window.matchMedia('(hover:hover)').matches);
-      const ok = await loadHistoryPage(true);
+      const ok = await showHistory(id);
       if (currentConvId !== id) return;
       loadPendingPlans();
       if (ok) setOrbChatActive(true);
@@ -4351,9 +4554,11 @@ function hideProactiveReturnToast(){
         if (r.status === 404 || r.status === 503){ spacesSupported = false; spaces = []; renderSpaces(); return false; }
         const d = await r.json().catch(() => null);
         if (!r.ok || !d || !d.ok) throw new Error('HTTP ' + r.status);
-        spacesSupported = true; spaces = d.spaces || [];
+        spacesSupported = true; spaces = d.spaces || []; spaceNeedsPick = !!d.needsPick;
         spaceMeta = { categories: d.categories || [], styles: d.styles || [], icons: d.icons || [], colors: d.colors || [], aiGenerator: !!d.aiGenerator };
-        renderSpaces(); return true;
+        renderSpaces();
+        if (spaceNeedsPick && !pickShown){ pickShown = true; openPickModal(); }       // an older account with several Spaces: choose one (once per visit)
+        return true;
       }catch(e){ console.warn('[spaces] load failed:', e.message); return false; }
     }
 
@@ -4362,21 +4567,47 @@ function hideProactiveReturnToast(){
       const m = $('spaceMenu'), c = $('hubCard'); if (!m || !c) return;
       m.hidden = !open; c.setAttribute('aria-expanded', open ? 'true' : 'false'); $('spaceHub').classList.toggle('open', !!open);
     }
+    // the intro card in the chat follows the ACTIVE role: switching Role 1 / Role 2 (or editing it) updates it in place
+    function syncSpaceIntro(cur){
+      const card = feed && feed.querySelector('.space-intro'); if (!card || !cur) return;
+      const ico = card.querySelector('.pi-ico'); if (ico) ico.textContent = SP_ICON[cur.icon] || '💼';
+      const t = card.querySelector('.pi-title'); if (t) t.textContent = cur.name;
+      let g = card.querySelector('.pi-goal');
+      if (cur.role){ if (!g){ g = document.createElement('div'); g.className = 'pi-goal'; (t || card.firstChild).after(g); } g.textContent = cur.role; }
+      else if (g) g.remove();
+    }
     function renderSpaces(){
       const hub = $('spaceHub'); if (!hub) return;
       const show = spacesSupported && convSupported; hub.hidden = !show;
       if (!show) return;
-      $('spaceCount').textContent = String(spaces.length);
-      const cur = spaceOfConv(currentSpaceConv());
+      const one = spaces.length === 1 ? spaces[0] : null;                               // ONE Work Space per user; the list below shows its ROLES (max 2)
+      $('spaceCount').textContent = one ? one.roles.length + '/2' : String(spaces.length);
+      const cur = spaceOfConv(currentSpaceConv()) || one;
+      const add = $('hubAddRole');                                                    // no "Create" row in the menu: the card creates the first Space, this chip adds the 2nd role
+      if (add){ add.hidden = !(spaceNeedsPick || (one && one.canAddRole)); add.textContent = spaceNeedsPick ? 'Keep one…' : '+ 2nd role'; }
       $('hubCard').className = 'hub-card' + (cur ? ' active sp-' + cur.color : '');
       $('hubAvatar').textContent = cur ? (SP_ICON[cur.icon] || '💼') : '✦';
-      $('hubName').textContent = cur ? cur.name : 'Choose a Work Space';
-      $('hubSub').textContent = cur ? ((cur.role ? cur.role + ' · ' : '') + styleInfo(cur.style).label) : (spaces.length ? spaces.length + ' job profile' + (spaces.length === 1 ? '' : 's') + ' ready' : 'A job profile with its own rules and skills');
-      $('hubActions').hidden = !cur;
+      $('hubName').textContent = cur ? cur.name : (spaceNeedsPick ? 'Choose your Work Space' : 'Create your Work Space');
+      $('hubSub').textContent = cur ? ((cur.role ? cur.role + ' · ' : '') + styleInfo(cur.style).label) : (spaceNeedsPick ? 'You have older Spaces — keep one' : 'Pick a role or describe yours');
+      syncSpaceIntro(cur);
+      $('hubActions').hidden = !(cur || spaceNeedsPick);
+      $('hubSkills').hidden = $('hubEdit').hidden = !cur;
       if (cur) $('hubSkillCount').textContent = String(cur.skillCount || 0);
       const list = $('spaceList'); list.textContent = '';
-      if (!spaces.length){ const e = document.createElement('div'); e.className = 'hub-empty'; e.textContent = 'No Work Spaces yet.'; list.appendChild(e); }
-      for (const s of spaces){
+      if (!spaces.length){ const e = document.createElement('div'); e.className = 'hub-empty'; e.textContent = 'No Work Space yet.'; list.appendChild(e); }
+      if (one) for (const r of one.roles){
+        const on = r.n === one.activeRole;
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'hub-item sp-' + r.color + (on ? ' on' : ''); b.dataset.role = String(r.n);
+        b.setAttribute('role', 'option'); b.setAttribute('aria-selected', on ? 'true' : 'false');
+        const av = document.createElement('span'); av.className = 'hub-avatar sm'; av.setAttribute('aria-hidden', 'true'); av.textContent = SP_ICON[r.icon] || '💼';
+        const tx = document.createElement('span'); tx.className = 'hub-text';
+        const n = document.createElement('span'); n.className = 'hub-name'; n.textContent = r.name;
+        const m = document.createElement('span'); m.className = 'hub-sub'; m.textContent = 'Role ' + r.n + (on ? ' · active' : '') + ' · ' + styleInfo(r.style).label;
+        tx.append(n, m); b.append(av, tx);
+        b.addEventListener('click', () => { hubMenu(false); switchRole(one.id, r.n); });
+        list.appendChild(b);
+      }
+      else for (const s of spaces){
         const b = document.createElement('button'); b.type = 'button'; b.className = 'hub-item sp-' + s.color + (cur && cur.id === s.id ? ' on' : ''); b.dataset.space = s.id;
         b.setAttribute('role', 'option'); b.setAttribute('aria-selected', cur && cur.id === s.id ? 'true' : 'false');
         const av = document.createElement('span'); av.className = 'hub-avatar sm'; av.setAttribute('aria-hidden', 'true'); av.textContent = SP_ICON[s.icon] || '💼';
@@ -4387,6 +4618,18 @@ function hideProactiveReturnToast(){
         b.addEventListener('click', () => { hubMenu(false); openSpace(s.id); });
         list.appendChild(b);
       }
+    }
+    async function switchRole(id, n){
+      const s = spaces.find(x => x.id === id);
+      try{
+        if (!s || s.activeRole !== n){
+          const r = await convFetch('/api/spaces/' + encodeURIComponent(id) + '/active-role', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: n, userId: GUEST_ID }) });
+          const d = await r.json().catch(() => null);
+          if (!r.ok || !d || !d.ok) throw new Error((d && d.error) || ('HTTP ' + r.status));
+          await refreshSpaces(); await refreshConversations();
+        }
+        await openSpace(id);
+      }catch(e){ menuNotice('Couldn’t switch the role.'); }
     }
     async function openSpace(id, opts = {}){
       try{
@@ -4473,6 +4716,8 @@ function hideProactiveReturnToast(){
       $('spTabSkills').disabled = !space; $('spTabSkills').title = space ? '' : 'Create the Work Space first';
       $('spStart').hidden = !!space; $('spDanger').hidden = !space;
       $('spSave').textContent = space ? 'Save changes' : 'Create Work Space';
+      $('spArchive').textContent = space && space.activeRole === 2 ? 'Remove this role' : 'Archive';
+      $('spDelete').textContent = 'Delete forever';
       spErr(''); $('spDelete').textContent = 'Delete forever'; $('spDelete').dataset.armed = ''; $('spName').dataset.auto = '';
       $('spGenNote').textContent = ''; $('spGenNote').className = 'sp-note'; $('spDesc').value = '';
       spDraft = { preset: 'blank', icon: 'briefcase', color: 'violet' };
@@ -4483,7 +4728,11 @@ function hideProactiveReturnToast(){
       $('spaceModal').hidden = false; document.body.classList.add('sp-open');
       if (space && tab === 'skills') loadSkills(); else setTimeout(() => $(space ? 'spName' : 'spDesc').focus(), 40);
     }
-    function closeSpaceSheet(){ $('spaceModal').hidden = true; document.body.classList.remove('sp-open'); editingSpace = null; }
+    function closeSpaceSheet(){ $('spaceModal').hidden = true; document.body.classList.remove('sp-open'); editingSpace = null; addingRoleTo = null; }
+    function openRoleSheet(sp){                                             // the creator, but it saves as the SECOND role of the existing Work Space
+      openSpaceSheet(null); addingRoleTo = sp.id;
+      $('spTitle').textContent = 'Add a second role'; $('spSave').textContent = 'Add role';
+    }
     let spBusy = false;
     async function saveSpace(ev){
       ev.preventDefault(); if (spBusy) return;
@@ -4493,7 +4742,7 @@ function hideProactiveReturnToast(){
       if (!editingSpace){ body.preset = spDraft.preset; body.icon = spDraft.icon; body.color = spDraft.color; }
       spBusy = true; spErr(''); const btn = $('spSave'); btn.disabled = true;
       try{
-        const r = await convFetch('/api/spaces' + (editingSpace ? '/' + encodeURIComponent(editingSpace.id) : ''), { method: editingSpace ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const r = await convFetch('/api/spaces' + (addingRoleTo ? '/' + encodeURIComponent(addingRoleTo) + '/role2' : editingSpace ? '/' + encodeURIComponent(editingSpace.id) : ''), { method: addingRoleTo ? 'PUT' : editingSpace ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
         const d = await r.json().catch(() => null);
         if (!r.ok || !d || !d.ok) throw new Error((d && d.error) || ('HTTP ' + r.status));
         const created = !editingSpace; closeSpaceSheet();
@@ -4504,6 +4753,14 @@ function hideProactiveReturnToast(){
     }
     async function removeSpace(permanent){
       if (!editingSpace) return; const id = editingSpace.id;
+      if (!permanent && editingSpace.activeRole === 2){                      // "Remove this role": back to role 1, the Work Space itself stays
+        try{
+          const r = await convFetch('/api/spaces/' + encodeURIComponent(id) + '/role2', { method: 'DELETE' });
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          closeSpaceSheet(); await refreshSpaces(); await refreshConversations(); menuNotice('Second role removed.');
+        }catch(e){ spErr('Couldn’t remove the role.'); }
+        return;
+      }
       try{
         const r = await convFetch('/api/spaces/' + encodeURIComponent(id) + (permanent ? '?permanent=1' : ''), { method: 'DELETE' });
         if (!r.ok && r.status !== 404) throw new Error('HTTP ' + r.status);
@@ -4589,7 +4846,7 @@ function hideProactiveReturnToast(){
       const wrap = document.createElement('div'); wrap.className = 'bubble ai stable project-intro space-intro';
       wrap.innerHTML =
         '<div class="pi-kicker"><span class="pi-ico">' + esc(SP_ICON[(s && s.icon) || 'briefcase'] || '💼') + '</span> Work Space</div>' +
-        '<div class="pi-title">' + esc(c.title) + '</div>' + (s && s.role ? '<div class="pi-goal">' + esc(s.role) + '</div>' : '') +
+        '<div class="pi-title">' + esc((s && s.name) || c.title) + '</div>' + (s && s.role ? '<div class="pi-goal">' + esc(s.role) + '</div>' : '') +
         '<p class="pi-text">This Space has its own role, rules and skills, separate from your Companion thread. Teach it procedures and it will use them when your message matches.</p>';
       const sug = document.createElement('div'); sug.className = 'suggest';
       const mk = (label, fn) => { const ch = document.createElement('div'); ch.className = 'chip'; ch.textContent = label; ch.addEventListener('click', fn); sug.appendChild(ch); };
@@ -4599,10 +4856,52 @@ function hideProactiveReturnToast(){
       wrap.appendChild(sug); feed.appendChild(wrap);
     }
 
-    $('hubCard')?.addEventListener('click', () => hubMenu($('spaceMenu').hidden));
-    $('hubSkills')?.addEventListener('click', () => { const s = spaceOfConv(currentSpaceConv()); if (s) openSpaceSheet(s, 'skills'); });
-    $('hubEdit')?.addEventListener('click', () => { const s = spaceOfConv(currentSpaceConv()); if (s) openSpaceSheet(s, 'profile'); });
-    $('newSpaceBtn')?.addEventListener('click', () => { hubMenu(false); openMenu(); openSpaceSheet(null); });
+    // ── older accounts with several Spaces: keep one (+ optionally another as role 2); the rest are archived, never deleted ──
+    let pkKeep = null, pkSecond = null;
+    function pkRender(){
+      const fill = (box, withNone, cur, set) => {
+        box.textContent = '';
+        const items = withNone ? [{ id: null, name: 'No second role', role: '', icon: 'briefcase', color: 'violet' }, ...spaces.filter(s => s.id !== pkKeep)] : spaces;
+        for (const s of items){
+          const b = document.createElement('button'); b.type = 'button'; b.className = 'pk-item' + (cur === s.id ? ' on' : ''); b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', cur === s.id ? 'true' : 'false'); b.dataset.id = s.id || '';
+          const i = document.createElement('span'); i.className = 'pk-ico'; i.textContent = s.id ? (SP_ICON[s.icon] || '💼') : '–';
+          const t = document.createElement('span'); t.className = 'pk-txt'; const n = document.createElement('b'); n.textContent = s.name; const m = document.createElement('small'); m.textContent = s.id ? (s.role || 'Work Space') + ' · ' + (s.skillCount || 0) + ' skills' : 'Only one role for now';
+          t.append(n, m); b.append(i, t); b.addEventListener('click', () => { set(s.id); pkRender(); }); box.appendChild(b);
+        }
+      };
+      fill($('pkList'), false, pkKeep, (id) => { pkKeep = id; if (pkSecond === id) pkSecond = null; });
+      fill($('pkSecond'), true, pkSecond, (id) => { pkSecond = id; });
+    }
+    function openPickModal(){
+      if (spaces.length < 2) return;
+      pkKeep = (spaceOfConv(currentSpaceConv()) || spaces[0]).id; pkSecond = null; pkRender(); spErr('', 'pkError');
+      $('pickModal').hidden = false; document.body.classList.add('sp-open');
+    }
+    function closePickModal(){ $('pickModal').hidden = true; if ($('spaceModal').hidden) document.body.classList.remove('sp-open'); }
+    async function savePick(){
+      if (!pkKeep) return; const btn = $('pkSave'); btn.disabled = true; spErr('', 'pkError');
+      try{
+        const r = await convFetch('/api/spaces/pick', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: pkKeep, secondId: pkSecond, userId: GUEST_ID }) });
+        const d = await r.json().catch(() => null);
+        if (!r.ok || !d || !d.ok) throw new Error((d && d.error) || ('HTTP ' + r.status));
+        closePickModal(); await refreshSpaces(); await refreshConversations(); menuNotice('Your Work Space is set.');
+      }catch(e){ spErr(/^HTTP/.test(e.message) ? 'Couldn’t save. Try again.' : e.message, 'pkError'); }
+      finally{ btn.disabled = false; }
+    }
+    $('pkSave')?.addEventListener('click', savePick);
+    $('pkLater')?.addEventListener('click', closePickModal);
+    $('pickModal')?.addEventListener('keydown', (e) => { if (e.key === 'Escape'){ e.stopPropagation(); closePickModal(); } });
+
+    $('hubCard')?.addEventListener('click', () => { if (!spaces.length){ openSpaceSheet(null); return; } hubMenu($('spaceMenu').hidden); });   // no Space yet → the card itself opens the creator
+    const myWorkSpace = () => spaceOfConv(currentSpaceConv()) || (spaces.length === 1 ? spaces[0] : null);
+    $('hubSkills')?.addEventListener('click', () => { const s = myWorkSpace(); if (s) openSpaceSheet(s, 'skills'); });
+    $('hubEdit')?.addEventListener('click', () => { const s = myWorkSpace(); if (s) openSpaceSheet(s, 'profile'); });
+    $('hubAddRole')?.addEventListener('click', () => {
+      hubMenu(false); openMenu();
+      if (spaceNeedsPick) return openPickModal();
+      const one = spaces.length === 1 ? spaces[0] : null;
+      if (one) openRoleSheet(one);
+    });
     document.addEventListener('mousedown', (e) => { const h = $('spaceHub'); if (h && !$('spaceMenu').hidden && !h.contains(e.target)) hubMenu(false); });
     $('spaceHub')?.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('spaceMenu').hidden){ e.stopPropagation(); hubMenu(false); $('hubCard').focus(); } });
     $('spGenerate')?.addEventListener('click', spGenerate);
@@ -4706,9 +5005,16 @@ function hideProactiveReturnToast(){
     });
 
     // ── profile badge ──
+    // A readable name: the saved name unless it is really an internal id (cuid / uuid / the user id), else the part of the email before "@"
+    function displayName(){
+      const looksLikeId = (v) => { v = String(v || '').trim(); return !v || v === GUEST_ID || /^c[a-z0-9]{20,}$/i.test(v) || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v) || /^(guest_|user_)/i.test(v); };
+      if (!looksLikeId(authUser.name)) return String(authUser.name).trim();
+      const local = String(authUser.email || '').split('@')[0].replace(/[._-]+/g, ' ').replace(/\d+$/, '').trim();
+      return local ? local.replace(/(^|\s)\p{L}/gu, (m) => m.toUpperCase()) : 'User';
+    }
     function renderProfile(){
       const signed = !!isAuthenticatedUser;
-      const name = signed ? (authUser.name || (authUser.email || '').split('@')[0] || 'User') : 'Guest';
+      const name = signed ? displayName() : 'Guest';
       if ($('menuName')) $('menuName').textContent = name;
       if ($('menuEmail')) $('menuEmail').textContent = signed ? (authUser.email || '') : 'Not signed in';
       if ($('menuAvatar')) $('menuAvatar').textContent = (name || '?').trim().charAt(0).toUpperCase() || '?';
@@ -4720,12 +5026,20 @@ function hideProactiveReturnToast(){
     }
     // ── Menu hub: appearance (theme + accent glow), server status, tools ──
     const hubEl = $('menuHub'), hubBtn = $('menuProfileBtn');
+    { const foot = hubEl && hubEl.closest('.menu-foot'); if (foot && foot.parentNode) foot.parentNode.insertBefore(hubEl, foot); }   // the Hub scrolls WITH the sidebar; only the profile button + Log out stay pinned
     function setHub(open){
       if (!hubEl || !hubBtn) return;
       hubEl.hidden = !open;
       hubBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
       hubBtn.classList.toggle('open', !!open);
-      if (open){ refreshFacts(); refreshReminders(); }
+      if (open){
+        requestAnimationFrame(() => {                                          // bring the open Hub fully above the pinned footer
+          const box = hubEl.closest('.menu-inner'), foot = document.querySelector('#leftPanel .menu-foot'); if (!box || !foot) return;
+          const h = hubEl.getBoundingClientRect(), top = box.getBoundingClientRect().top, room = foot.getBoundingClientRect().top - top;
+          if (h.height > room - 16) box.scrollTop += h.top - top - 8;                // taller than the visible area → show its top
+          else if (h.bottom > foot.getBoundingClientRect().top - 8) box.scrollTop += h.bottom - foot.getBoundingClientRect().top + 8;
+        });
+      }
     }
     hubBtn?.addEventListener('click', () => setHub(hubEl.hidden));
     window.__openMenuHub = () => { openMenu(); setHub(true); hubBtn?.scrollIntoView({ block: 'nearest' }); };
@@ -5076,6 +5390,7 @@ function hideProactiveReturnToast(){
           }
           toast(why, 4200); return;
         }
+        histCache.delete(currentConvId);                                                 // deleted on the server → forget the cached copy
         if (!feed.querySelector('.bubble')) introForCurrent();                           // emptied the chat → show the usual starting card
         toast(list.length === 1 ? 'Message deleted' : list.length + ' messages deleted');
       }
@@ -5184,6 +5499,7 @@ setMoodUI({ mood: 'Calm', state: 'Neutral' });
   })();
   </script>
 
+  <script src="/i18n.js" defer></script>
   <script src="/script.js" defer></script>
 <!-- SHERZ AI YURAGI — CYBER ORB + LOGO DYNAMIC CONTROLLER -->
 <script>

@@ -1,0 +1,10 @@
+/* ── One Work Space: "keep one" dialog for older accounts ── */
+.pk-text{ margin:0 0 6px; font-size:13.5px; line-height:1.5; color:var(--sp-muted); } .pk-text b{ color:var(--sp-text); }
+.pk-list{ display:flex; flex-direction:column; gap:6px; margin-bottom:8px; }
+.pk-item{ display:flex; align-items:center; gap:10px; width:100%; padding:9px 11px; text-align:left; font-family:inherit; color:var(--sp-text); background:var(--sp-soft); border:1px solid var(--sp-line); border-radius:12px; cursor:pointer; transition:background .15s, border-color .15s; }
+.pk-item:hover{ background:var(--sp-line); }
+.pk-item.on{ border-color:var(--sp-accent); box-shadow:0 0 0 3px rgba(124,58,237,.18); }
+.pk-item:focus-visible{ outline:2px solid var(--sp-accent); outline-offset:2px; }
+.pk-ico{ width:30px; height:30px; flex:none; display:flex; align-items:center; justify-content:center; border-radius:9px; background:var(--sp-field); font-size:15px; }
+.pk-txt{ display:flex; flex-direction:column; min-width:0; } .pk-txt b{ font-size:13.5px; } .pk-txt small{ font-size:11.5px; color:var(--sp-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.hub-create[hidden]{ display:none; }

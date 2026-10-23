@@ -15,7 +15,7 @@ export function spacesDb() {
   });
   const db = {
     T: new Proxy(T, { get: (t, k) => t[k] }),
-    workSpace: model('workSpace', () => ({ preset: 'blank', style: 'general', archivedAt: null })),
+    workSpace: model('workSpace', () => ({ preset: 'blank', style: 'general', archivedAt: null, role2: {}, activeRole: 1 })),
     skill: model('skill', () => ({ source: 'taught', status: 'active', version: 1, uses: 0, successes: 0, corrections: 0, rejections: 0, lastUsedAt: null })),
     skillEvent: model('skillEvent'),
     conversation: model('conversation', () => ({ kind: 'companion', title: 'New chat', description: null, spaceId: null })),

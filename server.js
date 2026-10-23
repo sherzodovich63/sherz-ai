@@ -30,7 +30,10 @@ import adminRouter from './routes/admin.js'; // ✅ Sprint 3 admin layer
 import { spacesRouter } from './routes/spaces.js';      // ✅ Work Spaces + Skills (Phase 4)
 import { loadWorkMode } from './lib/spaces.js';
 import { wantsDocFile } from './lib/docs/intent.js';
+import { docFollowUpRequest, hasFakeFileLink, stripFakeFileLinks, hasFileCreationClaim, FILE_NOT_CREATED_NOTE } from './lib/docs/followup.js';
 import { filesRouter } from './routes/files.js';        // ✅ Excel/Word files (Phase 5)
+import { greetingRouter } from './routes/greeting.js';   // ✅ fresh, curious opening line for an empty chat
+import { createGreetingService } from './lib/greeting.js';
 import { setFileStore, prismaFileStore } from './lib/docs/store.js';
 import { recordDecision as skillDecision } from './lib/skills.js';
 import { agentRouter, makeGate, makeTrust, makeRuns, makeConsent, makeAutonomy, makeConventions } from './routes/agent.js'; // ✅ Agent Approval Gate (Phase 1)
@@ -50,6 +53,8 @@ import { fetchPage, fetchContextForLLM } from './lib/chatHistory.js';
 import { deleteMessages, parseIds } from './lib/messages.js'; // ✅ delete chat messages
 import { listConversations, createProject, updateConversation, deleteConversation, resolveConversation, ensureCompanion, workModeFor, saveTurn } from './lib/conversations.js'; // ✅ Companion thread + Projects
 import { WORK_CONTEXT } from './brain/workMode.js'; // ✅ Project → Work/Engineering mode // ✅ endless-thread: cursor pagination + latest-N LLM context
+import { createIntentJudge } from './lib/docs/intentJudge.js';
+
 // ───────── Common setup ─────────
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1770,7 +1775,16 @@ function withFallbackTimeout(promise, ms, fallbackValue) {
 // same runBrain call, same persistence, same memory extraction, same error
 // fallback strings. Accepts an optional onToken callback; when provided,
 // runBrain streams real OpenAI tokens through it as they arrive.
-async function runBrainFlow(userId, clean, image, { onToken, expertMode = false, conversationId, conversation } = {}) {
+// The user asked for a file, SHERZ asked a question, and this message just answers it → returns the original file request, else null.
+async function docFollowUpFor(userId, clean, conversationId) {
+  try {
+    const history = await fetchContextForLLM(prisma, userId, { conversationId: (conversationId && conversationId !== 'new') ? conversationId : undefined });
+    const h = (history || []).slice(-8);
+    return docFollowUpRequest({ history: h, text: clean }) || await intentJudge({ history: h, text: clean });
+  } catch { return null; }
+}
+
+async function runBrainFlow(userId, clean, image, { onToken, expertMode = false, conversationId, conversation, docRequest = null } = {}) {
   image = normalizeImage(image);   // null unless it is a genuine jpeg/png/webp/gif data URL within the size limit
   console.log(`[brain.llm] No specialist matched for userId=${userId}, routing to GPT brain`);
   try {
@@ -1803,10 +1817,13 @@ async function runBrainFlow(userId, clean, image, { onToken, expertMode = false,
     // compaction) stays identical for both paths; only which function
     // actually talks to the model differs.
     const brainResult = expertMode
-      ? await runExpertTurn({ userId, messages, prisma, image: image ?? null, onToken, workMode, agentGate, helperHub, trust, runs: agentRuns, consent: agentConsent, autonomy: agentAutonomy, conventions, maxToolHops: 8, conversationId: conv ? conv.id : (conversationId || null) })
+      ? await runExpertTurn({ userId, messages, prisma, image: image ?? null, onToken, workMode, agentGate, helperHub, trust, runs: agentRuns, consent: agentConsent, autonomy: agentAutonomy, conventions, maxToolHops: 8, conversationId: conv ? conv.id : (conversationId || null), docRequest })
       : await runBrain({ userId, messages, prisma, image: image ?? null, onToken, workMode });
 
-    const said = brainResult?.content || brainResult?.said || null;
+    let said = brainResult?.content || brainResult?.said || null;
+    // a made-up download link (sandbox:/…xlsx) must never reach the chat — nothing was created
+    if (said && !expertMode && hasFakeFileLink(said)) said = stripFakeFileLinks(said) + '\n\n(Fayl hali yaratilmadi. Yaratish uchun yozing: «Excel fayl yaratib ber: …» — tayyor bo‘lganda haqiqiy yuklab olish tugmasi chiqadi.)';
+    else if (said && !expertMode && hasFileCreationClaim(said)) said += FILE_NOT_CREATED_NOTE;
     if (!said) {
       console.error('[brain.llm] runBrain returned empty content:', JSON.stringify(brainResult));
       return { said: 'Hmm, bir oz qiyin bo\'ldi. Iltimos qayta urinib ko\'ring.' };
@@ -2083,9 +2100,19 @@ const spaceGeneratorLlm = async ({ system, user }) => {          // "Describe yo
   }, { timeout: 20000 });
   return r.choices?.[0]?.message?.content || '';
 };
+const intentJudge = createIntentJudge({ llm: async ({ system, user }) => {
+  const r = await openai.chat.completions.create({
+    model: process.env.SHERZ_INTENT_MODEL || process.env.SHERZ_FAST_MODEL || 'gpt-4o-mini',
+    messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+    response_format: { type: 'json_object' }, temperature: 0, max_tokens: 40,
+  }, { timeout: 4000 });
+  return r.choices?.[0]?.message?.content || '';
+} });
+
 if (prisma.generatedFile) setFileStore(prismaFileStore(prisma));
 else console.warn('[files] GeneratedFile model missing — using in-memory file store. Add prisma/Files.prisma.txt to schema.prisma and run: npx prisma db push');
 app.use('/api/files', filesRouter({ isProd, ensureUser: ensureGuestUser }));   // Phase 5
+app.use('/api/greeting', greetingRouter({ isProd, ensureUser: ensureGuestUser, service: createGreetingService({ openai, prisma }) }));   // fresh opening line for an empty chat
 app.use('/api/spaces', spacesRouter({ prisma, isProd, ensureUser: ensureGuestUser, llm: spaceGeneratorLlm }));   // Phase 4
 app.use('/api/agent', agentRouter({ gate: agentGate, trust, runs: agentRuns, consent: agentConsent, autonomy: agentAutonomy, conventions, evidence: (a) => skillDecision(prisma, a), buildTurn: agentBuildTurn, saveReply: agentSaveReply, isProd }));
 
@@ -2114,14 +2141,15 @@ app.post('/api/chat', chatImage, async (req, res) => {
       try { await ensureGuestUser(userId); conversation = await resolveConversation(prisma, userId, req.body?.conversationId); conversationId = conversation.id; }
       catch (convErr) { console.warn('[chat] conversation resolve failed (non-fatal):', convErr.message); }
       noteUserReplyForProactive(userId, clean);
-      const skillResult = req.body?.image ? null : await runSkillCandidates(clean, lower, userId);
+      const docRequest = req.body?.image ? null : await docFollowUpFor(userId, clean, conversationId);   // answering SHERZ's question about a file → stay on that task
+      const skillResult = (req.body?.image || docRequest) ? null : await runSkillCandidates(clean, lower, userId);
       if (skillResult) {
         said = skillResult.said;
         // ✅ NEW: this turn never reached runBrainFlow (which does its own
         // saving), so without this it was never persisted at all.
         await persistSkillTurn(userId, clean, said, conversationId);
       } else {
-        const bf = await runBrainFlow(userId, clean, req.body?.image, { conversationId, conversation });
+        const bf = await runBrainFlow(userId, clean, req.body?.image, { conversationId, conversation, docRequest, expertMode: !!docRequest || wantsDocFile(clean) });
         said = bf.said; plans = bf.plans || []; consents = bf.consents || [];
       }
     }
@@ -2184,7 +2212,8 @@ app.post('/api/chat-stream', chatImage, async (req, res) => {
     catch (convErr) { console.warn('[chat-stream] conversation resolve failed (non-fatal):', convErr.message); }
 
     noteUserReplyForProactive(userId, clean);
-    const skillResult = req.body?.image ? null : await runSkillCandidates(clean, lower, userId);
+    const docRequest = req.body?.image ? null : await docFollowUpFor(userId, clean, conversationId);   // answering SHERZ's question about a file ("Xarajatlar haqida") → stay on that task, no web lookup
+    const skillResult = (req.body?.image || docRequest) ? null : await runSkillCandidates(clean, lower, userId);
     if (skillResult) {
       send('chunk', { delta: skillResult.said });
       // ✅ NEW: same gap as /api/chat — a skill-handled turn here never
@@ -2203,7 +2232,7 @@ app.post('/api/chat-stream', chatImage, async (req, res) => {
     // ✅ NEW: Expert Mode flag from the client — forwarded straight through
     // to runBrainFlow, which branches internally.
     // Phase 5: asking for an Excel/Word FILE switches Expert Mode on by itself (tools only exist there); the user still approves the plan.
-    const autoDocs = wantsDocFile(clean);
+    const autoDocs = wantsDocFile(clean) || !!docRequest;
     const expertMode = req.body?.expertMode === true || req.body?.expertMode === 'true' || autoDocs;
     if (autoDocs) console.log(`[docs] file request detected → Expert Mode on (user ${userId})`);
 
@@ -2219,6 +2248,7 @@ app.post('/api/chat-stream', chatImage, async (req, res) => {
         expertMode,
         conversationId,
         conversation,
+        docRequest,
       }),
       brainTimeoutMs,
       { said: QUOTA_FALLBACK_MSG }

@@ -95,6 +95,8 @@ export async function runProactiveDecisionOnce({
     text = await generateProactiveMessage({ signals, decision });
 
     console.log(`✉️ [${tickId}] message generated`, {
+      intent: decision?.intent || null,
+      flavor: decision?.curiosity?.flavor || null,
       hasText: Boolean(text),
       preview: String(text || '').slice(0, 120),
     });

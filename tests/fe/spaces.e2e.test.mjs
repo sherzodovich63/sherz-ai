@@ -12,16 +12,16 @@ await page.goto(`http://localhost:${port}/`); await page.waitForTimeout(1000);
 await page.click('#btnLeftPanel').catch(() => {}); await page.waitForTimeout(400);
 const T = (sel) => page.textContent(sel);
 // ── hub ──
-ok('Space Hub card visible, neutral, no actions', await page.isVisible('#spaceHub') && /Choose a Work Space/.test(await T('#hubName')) && !(await page.isVisible('#hubActions')));
+ok('Space Hub card visible, neutral, no actions', await page.isVisible('#spaceHub') && /Create your Work Space/.test(await T('#hubName')) && !(await page.isVisible('#hubActions')));
 const hubBg = await page.$eval('#hubCard', (e) => getComputedStyle(e).backgroundColor), projBg = await page.$eval('#newProjectBtn', (e) => getComputedStyle(e).backgroundImage);
-ok('hub looks different from the New Project button (no shared gradient button)', !(await page.$('#newSpaceBtn.menu-new')) && (await page.$eval('#hubCard', (e) => e.className)).includes('hub-card'), projBg.slice(0, 40));
-await page.click('#hubCard'); await page.waitForTimeout(200);
-ok('menu opens with empty state + Create row', await page.isVisible('#spaceMenu') && /No Work Spaces yet/.test(await T('#spaceList')) && await page.isVisible('#newSpaceBtn'));
+ok('hub looks different from the New Project button (no shared gradient button)', !(await page.$('#newSpaceBtn')) && (await page.$eval('#hubCard', (e) => e.className)).includes('hub-card'), projBg.slice(0, 40));
+await page.click('#hubCard'); await page.waitForTimeout(300);
+ok('no Space yet: clicking the card opens the creator directly (there is no Create row in the menu)', await page.isVisible('#spaceModal') && !(await page.$('#newSpaceBtn')) && !(await page.isVisible('#spaceMenu')));
 await page.screenshot({ path: 'shots/hub-menu.png' });
-await page.click('#hubCard'); ok('card toggles menu closed', !(await page.isVisible('#spaceMenu')));
-await page.click('#hubCard'); await page.keyboard.press('Escape'); ok('Escape closes menu', !(await page.isVisible('#spaceMenu')));
+await page.click('#spCancel'); await page.waitForTimeout(200); ok('Cancel closes the creator', !(await page.isVisible('#spaceModal')));
+await page.click('#hubCard'); await page.waitForTimeout(300); await page.keyboard.press('Escape'); ok('Escape closes the creator', !(await page.isVisible('#spaceModal')));
 // ── creator: categories ──
-await page.click('#hubCard'); await page.click('#newSpaceBtn'); await page.waitForTimeout(300);
+await page.click('#hubCard'); await page.waitForTimeout(300);
 ok('creator: generator box + 5 category chips + role cards', await page.isVisible('#spDesc') && (await page.$$('#spCats .sp-cat')).length === 5 && (await page.$$('#spRoles .sp-role')).length >= 2);
 ok('Skills tab disabled while creating', await page.$eval('#spTabSkills', (b) => b.disabled));
 const cats = await page.$$eval('#spCats .sp-cat', (l) => l.map((e) => e.textContent.trim()));
@@ -67,16 +67,22 @@ ok('created from generated profile (name, style, instructions)', row && row.name
 ok('hub now shows the active Space + actions; chat in Space mode', /Ward Nurse/.test(await T('#hubName')) && /Formal corporate/.test(await T('#hubSub')) && await page.isVisible('#hubActions') && /Space · Ward Nurse/.test(await T('#modeBadgeText')));
 ok('space chat is not in the Projects list', !/Ward Nurse/.test(await T('#convList')));
 await page.screenshot({ path: 'shots/hub-active.png' });
-// second Space from a catalog role; switch via hub
-await page.click('#hubCard'); await page.click('#newSpaceBtn'); await page.click('#spCats [data-cat="logistics"]'); await page.click('#spRoles [data-role="logistics.dispatcher"]'); await page.click('#spSave'); await page.waitForTimeout(1500);
-ok('second Space from catalog; preset stored; operational style', state.spaceDb.T.workSpace.length === 2 && state.spaceDb.T.workSpace[1].preset === 'logistics.dispatcher' && state.spaceDb.T.workSpace[1].style === 'operational');
-await page.click('#hubCard'); ok('menu lists both, current marked', (await page.$$('#spaceList .hub-item')).length === 2 && (await page.$$eval('#spaceList .hub-item.on', (l) => l.length)) === 1);
-await page.screenshot({ path: 'shots/hub-two.png' });
+// ONE Work Space: the second profile is a ROLE inside it
+await page.click('#hubCard'); ok('second role is added with the chip in the Hub, not a Create row', await page.isVisible('#hubAddRole') && /2nd role/.test(await T('#hubAddRole')) && !(await page.$('#newSpaceBtn'))); await page.click('#hubCard');
+await page.click('#hubAddRole'); await page.waitForTimeout(300);
+ok('role sheet is titled "Add a second role"', /Add a second role/.test(await T('#spTitle')) && /Add role/.test(await T('#spSave')));
+await page.click('#spCats [data-cat="logistics"]'); await page.click('#spRoles [data-role="logistics.dispatcher"]'); await page.click('#spSave'); await page.waitForTimeout(1400);
+const w0 = state.spaceDb.T.workSpace;
+ok('still ONE Work Space row; role 2 stored (dispatcher, operational) and active', w0.length === 1 && w0[0].role2.preset === 'logistics.dispatcher' && w0[0].role2.style === 'operational' && w0[0].activeRole === 2, JSON.stringify(w0.map((w) => w.role2)));
+await page.click('#hubCard');
+ok('menu lists the two ROLES, active one marked, no create row (limit 2)', (await page.$$('#spaceList .hub-item')).length === 2 && (await page.$$eval('#spaceList .hub-item.on', (l) => l.length)) === 1 && !(await page.isVisible('#hubAddRole')) && /2\/2/.test(await T('#spaceCount')));
+await page.screenshot({ path: 'shots/hub-two-roles.png' });
 await page.click('#spaceList .hub-item:not(.on)'); await page.waitForTimeout(900);
-ok('switching Spaces via hub', /Ward Nurse|Dispatcher/i.test(await T('#hubName')) && /Space ·/.test(await T('#modeBadgeText')));
-// duplicate name
-await page.click('#hubCard'); await page.click('#newSpaceBtn'); await page.fill('#spName', 'ward nurse'); await page.click('#spSave'); await page.waitForTimeout(600);
-ok('duplicate name → inline error', await page.isVisible('#spaceModal') && /already have/.test(await T('#spError'))); await page.click('#spCancel');
+ok('switching role via hub (role 1 active again, chat title follows)', state.spaceDb.T.workSpace[0].activeRole === 1 && /Ward Nurse/.test(await T('#hubName')) && /Space ·/.test(await T('#modeBadgeText')) && state.spaceDb.T.conversation.every((c) => c.title === 'Ward Nurse'));
+await page.click('#hubCard'); await page.click('#spaceList .hub-item:not(.on)'); await page.waitForTimeout(900);
+ok('switch to role 2 and edit it: edit sheet offers "Remove this role"', /Dispatcher/i.test(await T('#hubName')) && (await page.evaluate(() => { document.getElementById('hubEdit').click(); return document.getElementById('spArchive').textContent; })) === 'Remove this role');
+await page.click('#spCancel'); await page.waitForTimeout(200);
+await page.click('#hubCard'); await page.click('#spaceList .hub-item:not(.on)'); await page.waitForTimeout(900);
 // skills via hub chip
 await page.click('#hubSkills'); await page.waitForTimeout(500);
 ok('hub Skills chip opens skills tab', !(await page.isVisible('#spProfile')) && /No skills yet/.test(await T('#spSkillList')));
@@ -101,12 +107,12 @@ const selL = await page.evaluate(() => { const s = document.createElement('selec
 ok('select + option colours distinct (light)', ratio(selL.sc, selL.sb) >= 3.5 && ratio(selL.oc, selL.ob) >= 7, JSON.stringify(selL));
 await page.click('#spClose'); await page.evaluate(() => document.documentElement.removeAttribute('data-theme'));
 // delete flow
-await page.click('#hubEdit'); await page.click('#spDelete'); ok('delete needs second click', state.spaceDb.T.workSpace.length === 2);
+await page.click('#hubEdit'); await page.click('#spDelete'); ok('delete needs second click', state.spaceDb.T.workSpace.length === 1);
 await page.click('#spDelete'); await page.waitForTimeout(1200);
-ok('deleted; back in Companion', state.spaceDb.T.workSpace.length === 1 && /Companion/.test(await T('#modeBadgeText')));
+ok('deleted; back in Companion', state.spaceDb.T.workSpace.length === 0 && /Companion/.test(await T('#modeBadgeText')));
 // mobile
 await page.setViewportSize({ width: 390, height: 780 });
-await page.evaluate(() => { document.querySelector('#newSpaceBtn').click(); }); await page.waitForTimeout(400);
+await page.evaluate(() => { document.querySelector('#hubCard').click(); }); await page.waitForTimeout(400);
 const ov = await page.evaluate(() => { const r = document.querySelector('.sp-sheet').getBoundingClientRect(); return { l: r.left, r: r.right, w: innerWidth, sx: document.documentElement.scrollWidth, sw: document.querySelector('.sp-body').scrollWidth, cw: document.querySelector('.sp-body').clientWidth }; });
 ok('mobile: sheet fits, no horizontal overflow', ov.l >= 0 && ov.r <= ov.w && ov.sx <= ov.w && ov.sw <= ov.cw + 1, JSON.stringify(ov));
 await page.screenshot({ path: 'shots/creator-mobile.png' });

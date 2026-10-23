@@ -1,0 +1,8 @@
+/* ═══ Left sidebar: ONE scroll container (.menu-inner). No nested scrollboxes; only the profile button + Log out stay pinned. ═══ */
+#leftPanel .menu-inner{ overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; scrollbar-width:thin; }
+#leftPanel .menu-list{ flex:none; max-height:none; overflow:visible; }
+#leftPanel .menu-hub{ position:static; max-height:none; overflow:visible; margin:0 12px 6px; animation:hubIn .22s var(--ease) both; }
+#leftPanel .hub-list, #leftPanel .menu-hub .hub-list{ max-height:none; overflow:visible; }
+#leftPanel .menu-foot{ position:sticky; bottom:0; z-index:5; background:#0e0e14; }
+html[data-theme="light"] #leftPanel .menu-foot{ background:#f3f4fb; }
+.hub-chip[hidden]{ display:none; }
