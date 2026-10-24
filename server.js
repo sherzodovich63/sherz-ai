@@ -54,7 +54,7 @@ import { deleteMessages, parseIds } from './lib/messages.js'; // ✅ delete chat
 import { listConversations, createProject, updateConversation, deleteConversation, resolveConversation, ensureCompanion, workModeFor, saveTurn } from './lib/conversations.js'; // ✅ Companion thread + Projects
 import { WORK_CONTEXT } from './brain/workMode.js'; // ✅ Project → Work/Engineering mode // ✅ endless-thread: cursor pagination + latest-N LLM context
 import { createIntentJudge } from './lib/docs/intentJudge.js';
-
+import { isNativeOrigin } from './lib/nativeAuth.js';
 // ───────── Common setup ─────────
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -129,6 +129,7 @@ const corsOptions = {
     // which a fixed CORS_ORIGIN list won't anticipate. This is the most
     // likely actual cause of "origin not allowed" against a Vercel frontend.
     if (/\.vercel\.app$/.test(new URL(origin).hostname)) return callback(null, true);
+    if (isNativeOrigin(origin)) return callback(null, true);
     if (allowedOrigins.length === 0) return callback(null, true); // not configured — allow all
     if (allowedOrigins.includes(origin)) return callback(null, true);
     console.warn('[cors] blocked origin:', origin, '— add it to CORS_ORIGIN in Render if this is expected');
