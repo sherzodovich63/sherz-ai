@@ -11,7 +11,7 @@ test('persona: has curiosity + own voice, with the safety limits that keep it fr
   assert.match(t, /Their silence is a valid answer/);
   assert.match(t, /stressed, grieving, in crisis/);
   assert.match(t, /Do not probe health, money/);
-  assert.match(t, /Always reply in the user's language/);
+  assert.match(t, /Always reply in the language of the user's latest message/);
   assert.match(t, /Independent stance/);                       // earlier sections are still there
 });
 test('intent: stress or a guarded relationship ALWAYS gets support, never a curious ping', () => {

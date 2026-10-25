@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
 import { spacesDb } from './helpers/spacesDb.mjs';
-import { createSpace, updateSpace, archiveSpace, deleteSpace, listSpaces, openSpaceConversation, loadWorkMode, cleanSpace, PRESETS, MAX_SPACES, MAX_ROLES, setSecondRole, removeSecondRole, setActiveRole, pickSpace, needsPick } from '../lib/spaces.js';
+import { ICONS, createSpace, updateSpace, archiveSpace, deleteSpace, listSpaces, openSpaceConversation, loadWorkMode, cleanSpace, PRESETS, MAX_SPACES, MAX_ROLES, setSecondRole, removeSecondRole, setActiveRole, pickSpace, needsPick } from '../lib/spaces.js';
 import { teachSkill, recordUse } from '../lib/skills.js';
 import { buildSpaceBlock, TRUST_RULES } from '../brain/spaceContext.js';
 import { buildWorkModeBlock, composeSystemPrompt } from '../brain/workMode.js';
@@ -105,7 +105,7 @@ async function serve(prisma, extra = {}) {
 test('HTTP: full lifecycle, validation → 400, isolation → 404, missing models → 503', async () => {
   const db = spacesDb(); const { j, close } = await serve(db);
   try {
-    let r = await j('GET', ''); assert.equal(r.status, 200); assert.equal(r.body.categories.length, 5); assert.equal(r.body.styles.length, 5); assert.equal(r.body.aiGenerator, false); assert.deepEqual(r.body.spaces, []);
+    let r = await j('GET', ''); assert.equal(r.status, 200); assert.equal(r.body.categories.length, 9); assert.equal(r.body.styles.length, 5); assert.equal(r.body.aiGenerator, false); assert.deepEqual(r.body.spaces, []);
     r = await j('POST', '', { name: 'Disp', preset: 'dispatcher' }); assert.equal(r.status, 201); const id = r.body.space.id;
     assert.equal((await j('POST', '', { name: 'disp' })).status, 400);
     assert.equal((await j('PATCH', '/' + id, { role: 'Boss' })).body.space.role, 'Boss');
@@ -157,8 +157,10 @@ import { generateSpace, sanitizeInstructions, matchRole, templateFor } from '../
 import { STYLE_DIRECTIVES } from '../brain/workMode.js';
 import { GENERATE_PER_HOUR as RT_LIMIT } from '../routes/spaces.js';
 
-test('catalog: 5 categories, every role valid and within limits, ids unique', () => {
-  assert.deepEqual(CATEGORIES.map((c) => c.id), ['logistics', 'finance', 'software', 'creative', 'academic']);
+test('catalog: 9 fields, every role valid and within limits, ids unique', () => {
+  assert.deepEqual(CATEGORIES.map((c) => c.id), ['business', 'legal', 'health', 'software', 'finance', 'creative', 'support', 'academic', 'logistics']);
+  assert.equal(CATEGORIES.flatMap((c) => c.roles).filter((r) => r.featured).length, 10);   // the picker's default view: one role per field
+  for (const r of Object.values(ROLES)) assert.ok(ICONS.includes(r.icon), r.id + ' icon ' + r.icon);
   const ids = Object.keys(ROLES); assert.equal(new Set(ids).size, ids.length); assert.ok(ids.length >= 15);
   for (const r of Object.values(ROLES)) {
     assert.ok(STYLES.some((x) => x.id === r.style), r.id); assert.ok(r.instructions.length > 60 && r.instructions.length <= 2000, r.id);

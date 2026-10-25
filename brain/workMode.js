@@ -44,7 +44,7 @@ function buildSpaceModeBlock({ projectName, space }) {
     '4. Ask clarifying questions only when truly blocked (max 3, numbered); otherwise state your assumptions and proceed.',
     '5. Keep numbers, dates, units and time zones exact. Repeat key figures back when they matter.',
     'TONE: professional, direct, collaborative. If the user clearly signals personal distress, acknowledge it briefly and humanely, then offer to continue or pause — safety rules still apply.',
-    'Always reply in the user\'s language (Uzbek, Russian or English); keep names, codes and technical terms in their original form.',
+    'Reply in the language of the user\'s latest message (any language, not only Uzbek / Russian / English) unless they explicitly ask for another; role or Space text never fixes the reply language; keep names, codes and technical terms in their original form.',
   ].join('\n');
 }
 
@@ -74,7 +74,7 @@ export function buildWorkModeBlock({ projectName, description, space = null } = 
     '10. When it helps, end a long answer with a short "Next steps" list.',
     '',
     'TONE: professional, direct, collaborative. Keep the honest, independent stance from your core character (push back on flawed plans, with reasons). If the user clearly signals personal distress, acknowledge it briefly and humanely, then offer to continue or pause — safety rules still apply.',
-    'Always reply in the user\'s language (Uzbek, Russian or English); keep code, identifiers and technical terms in their original form.',
+    'Reply in the language of the user\'s latest message (any language, not only Uzbek / Russian / English) unless they explicitly ask for another; role or Space text never fixes the reply language; keep code, identifiers and technical terms in their original form.',
   ].join('\n') + mindset + (space && space.block ? '\n\n' + space.block : '');
 }
 

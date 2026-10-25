@@ -1203,3 +1203,89 @@ html[data-theme="light"] .mode-badge, html[data-theme="light"] .mode-badge.work{
 @media (prefers-reduced-motion: reduce){
   .composer-shell, .voice-bar, .kbd-toggle svg, .hero-mic svg, .pill-mic svg, .attach-plus svg{ animation-duration:.01s !important; }
 }
+
+/* ═══ Work Space card actions: wrap inside the card, never squished or clipped ═══ */
+.hub-actions{ display:flex; flex-wrap:wrap; gap:6px; padding:4px; margin-top:6px; box-sizing:border-box; max-width:100%; }
+.hub-actions .hub-chip{ flex:1 1 auto; width:auto; min-width:0; height:30px; padding:0 10px; display:inline-flex; align-items:center; justify-content:center; gap:4px;
+  font-size:.75rem; line-height:1; white-space:nowrap; border-radius:10px; box-sizing:border-box;
+  border:1px solid rgba(var(--acc-rgb,167,139,250),.32); background:rgba(var(--acc-rgb,124,58,237),.12); transition:background .18s, border-color .18s, box-shadow .18s, transform .12s; }
+.hub-actions .hub-chip:hover{ background:rgba(var(--acc-rgb,124,58,237),.26); border-color:rgba(var(--acc-rgb,124,58,237),.7); box-shadow:0 0 12px var(--accent-glow, rgba(124,58,237,.35)); }
+.hub-actions .hub-chip:active{ transform:scale(.97); }
+.hub-actions .hub-chip[hidden]{ display:none !important; }   /* the flex rule above must never override [hidden] (it made "+ Add Persona" show at 2/2) */
+.hub-actions .hub-chip-n{ margin:0; padding:1px 6px; line-height:1.2; }
+
+
+/* ── Work Space role icons: Lucide line icons on a dark translucent tile ── */
+.sp-svg{ width:1em; height:1em; display:block; flex:none; }
+.hub-avatar .sp-svg{ width:20px; height:20px; filter:drop-shadow(0 0 6px currentColor); }
+.hub-avatar.sm .sp-svg{ width:17px; height:17px; }
+.hub-avatar{ background:rgba(10,12,22,.62) !important; backdrop-filter:blur(6px); }
+.sp-amber .hub-avatar{ background:linear-gradient(145deg, rgba(245,158,11,.20), rgba(10,12,22,.62)) !important; }
+.sp-teal .hub-avatar, .sp-green .hub-avatar{ background:linear-gradient(145deg, rgba(16,185,129,.20), rgba(10,12,22,.62)) !important; }
+.sp-rose .hub-avatar{ background:linear-gradient(145deg, rgba(244,63,94,.20), rgba(10,12,22,.62)) !important; }
+.sp-blue .hub-avatar{ background:linear-gradient(145deg, rgba(59,130,246,.20), rgba(10,12,22,.62)) !important; }
+.sp-violet .hub-avatar{ background:linear-gradient(145deg, rgba(139,92,246,.22), rgba(10,12,22,.62)) !important; }
+.sp-role-ico{ background:rgba(10,12,22,.55) !important; border:1px solid rgba(167,139,250,.28); color:#c4b5fd; }
+.sp-role-ico .sp-svg{ width:17px; height:17px; }
+.sp-amber .sp-role-ico{ color:#fcd34d; border-color:rgba(251,191,36,.3); }
+.sp-teal .sp-role-ico, .sp-green .sp-role-ico{ color:#6ee7b7; border-color:rgba(52,211,153,.3); }
+.sp-rose .sp-role-ico{ color:#fda4af; border-color:rgba(251,113,133,.3); }
+.sp-blue .sp-role-ico{ color:#93c5fd; border-color:rgba(96,165,250,.3); }
+.pk-ico{ color:#c4b5fd; } .pk-ico .sp-svg{ width:16px; height:16px; }
+.pi-ico{ display:inline-flex; align-items:center; padding:3px 5px !important; } .pi-ico .sp-svg{ width:13px; height:13px; }
+.sp-cat .sp-svg{ display:inline-block; vertical-align:-2px; width:14px; height:14px; margin-right:2px; }
+
+/* ═══ Work Space action row: Skills · Role & Rules · + Add Persona — always ONE row, never wrapping or leaking ═══
+   A 3-column grid (auto-flow: a hidden chip simply leaves 2 equal columns); #hubActions raises specificity over earlier rules. */
+#hubActions.hub-actions{ display:grid; grid-auto-flow:column; grid-auto-columns:minmax(0,1fr); gap:6px; flex-wrap:nowrap; padding:4px; margin-top:6px; width:100%; max-width:100%; box-sizing:border-box; }
+#hubActions.hub-actions[hidden]{ display:none !important; }
+#hubActions.hub-actions .hub-chip{ flex:none; width:100%; min-width:0; height:auto; min-height:30px; padding:6px 8px; box-sizing:border-box; display:inline-flex; align-items:center; justify-content:center; gap:4px;
+  font-size:11px; font-weight:600; line-height:1.15; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; letter-spacing:0; }
+#hubActions.hub-actions .hub-chip[hidden]{ display:none !important; }
+#hubActions.hub-actions .hub-chip-n{ display:inline-flex; align-items:center; justify-content:center; flex:none; min-width:16px; height:16px; margin:0; padding:0 5px; box-sizing:border-box; line-height:1; font-size:10px; }
+@media (max-width:360px){ #hubActions.hub-actions{ gap:4px; padding:3px; } #hubActions.hub-actions .hub-chip{ padding:6px 4px; font-size:10.5px; } }
+#hubActions.hub-actions{ container-type:inline-size; }
+@container (max-width:290px){ #hubActions.hub-actions{ gap:4px; padding:3px; } #hubActions.hub-actions .hub-chip{ padding:6px 3px; font-size:10px; gap:3px; } #hubActions.hub-actions .hub-chip-n{ min-width:15px; height:15px; padding:0 4px; font-size:9.5px; } }
+
+/* ── Brain panel: Shared learning switch (opt-in) ── */
+.share-row{ display:flex; align-items:flex-start; gap:12px; margin-top:8px; }
+.share-text{ flex:1; min-width:0; user-select:text; -webkit-user-select:text; }
+.share-text b{ display:block; font-size:14px; line-height:1.35; font-weight:700; color:#fff; }
+.share-text small{ display:block; margin-top:5px; font-size:12px; line-height:1.5; color:rgba(255,255,255,.58); }
+.share-switch{ flex:none; position:relative; width:42px; height:24px; margin-top:2px; padding:0; border-radius:999px; cursor:pointer; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.2); transition:background .22s, border-color .22s, box-shadow .22s; }
+.share-switch .share-knob{ position:absolute; top:2px; left:2px; width:18px; height:18px; border-radius:50%; background:#e5e7eb; transition:transform .22s var(--spring, cubic-bezier(.16,1,.3,1)), background .22s; }
+.share-switch.on{ background:rgba(var(--acc-rgb,16,185,129),.55); border-color:rgba(var(--acc-rgb,16,185,129),.9); box-shadow:0 0 12px var(--accent-glow, rgba(16,185,129,.4)); }
+.share-switch.on .share-knob{ transform:translateX(18px); background:#fff; }
+.share-switch:disabled{ opacity:.45; cursor:not-allowed; }
+.share-switch:focus-visible, .share-link:focus-visible{ outline:2px solid #a78bfa; outline-offset:2px; }
+.share-note{ margin-top:10px; font-size:12px; line-height:1.45; color:rgba(255,255,255,.7); }
+.share-note[hidden], .share-link[hidden]{ display:none; }
+.share-link{ margin-top:10px; padding:0; background:none; border:0; cursor:pointer; font:600 12px inherit; font-family:inherit; color:#c4b5fd; text-decoration:underline; text-underline-offset:2px; }
+html[data-theme="light"] .share-text b{ color:#1e1b4b; } html[data-theme="light"] .share-text small, html[data-theme="light"] .share-note{ color:rgba(30,27,75,.65); }
+html[data-theme="light"] .share-switch{ background:rgba(30,27,75,.12); border-color:rgba(30,27,75,.25); }
+
+/* ═══ Role picker (Add a role / New Work Space): search + field tabs + clean grid — neutral, enterprise look ═══ */
+.rp-search{ position:relative; margin:2px 0 10px; }
+.rp-search-ico{ position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--sp-muted); pointer-events:none; }
+.rp-search-in{ width:100%; height:38px; padding:0 12px 0 34px; box-sizing:border-box; border-radius:11px; border:1px solid var(--sp-line); background:rgba(255,255,255,.035); color:var(--sp-text); font:500 13.5px inherit; font-family:inherit; outline:none; transition:border-color .18s, box-shadow .18s, background .18s; }
+.rp-search-in::placeholder{ color:var(--sp-muted); }
+.rp-search-in:focus{ border-color:rgba(var(--acc-rgb,167,139,250),.8); box-shadow:0 0 0 3px rgba(var(--acc-rgb,167,139,250),.16); background:rgba(255,255,255,.05); }
+.rp-search-in::-webkit-search-cancel-button{ filter:invert(.7); }
+.rp-tabs{ display:flex; flex-wrap:nowrap; gap:6px; overflow-x:auto; padding:2px 0 8px; margin:0 -2px; scrollbar-width:thin; -webkit-overflow-scrolling:touch; }
+.rp-tabs .sp-cat{ flex:none; height:30px; padding:0 12px; border-radius:8px; font-size:12px; font-weight:600; letter-spacing:.01em; white-space:nowrap; background:transparent; border:1px solid var(--sp-line); color:var(--sp-muted); transition:color .15s, background .15s, border-color .15s; }
+.rp-tabs .sp-cat:hover{ color:var(--sp-text); background:rgba(255,255,255,.04); }
+.rp-tabs .sp-cat.on{ color:#fff; background:rgba(var(--acc-rgb,124,58,237),.28); border-color:rgba(var(--acc-rgb,167,139,250),.7); }
+.rp-grid{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin:4px 0 6px; }
+.rp-grid .sp-role{ position:relative; display:flex; align-items:center; gap:11px; min-width:0; padding:11px 12px; border-radius:12px; text-align:left; cursor:pointer; background:rgba(255,255,255,.03); border:1px solid var(--sp-line); transition:border-color .16s, background .16s, transform .12s; }
+.rp-grid .sp-role:hover{ background:rgba(255,255,255,.055); border-color:rgba(var(--acc-rgb,167,139,250),.55); }
+.rp-grid .sp-role:active{ transform:scale(.99); }
+.rp-grid .sp-role.on{ border-color:rgba(var(--acc-rgb,167,139,250),.95); background:rgba(var(--acc-rgb,124,58,237),.16); box-shadow:inset 0 0 0 1px rgba(var(--acc-rgb,167,139,250),.35); }
+.rp-grid .sp-role.on::after{ content:''; position:absolute; top:10px; right:11px; width:7px; height:12px; border:solid rgba(var(--acc-rgb,196,181,253),1); border-width:0 2px 2px 0; transform:rotate(40deg) scale(.9); }
+.rp-grid .sp-role-ico{ width:34px; height:34px; border-radius:9px; }
+.rp-grid .sp-role-txt{ min-width:0; flex:1; padding-right:14px; }
+.rp-grid .sp-role-txt b{ font-size:13px; font-weight:650; line-height:1.25; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.rp-grid .sp-role-txt small{ margin-top:2px; font-size:11.5px; line-height:1.25; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.rp-hint{ min-height:16px; margin:2px 0 4px; font-size:11.5px; line-height:1.45; color:var(--sp-muted); }
+.rp-grid:empty + .rp-hint{ padding:14px 0; text-align:center; font-size:12.5px; }
+@media (max-width:560px){ .rp-grid{ grid-template-columns:1fr; } }
+html[data-theme="light"] .rp-grid .sp-role, html[data-theme="light"] .rp-search-in{ background:rgba(30,27,75,.03); }

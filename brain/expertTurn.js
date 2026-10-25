@@ -37,7 +37,7 @@ import {
 } from './brain.js';
 
 import { buildFullSystemContext } from './systemContext.js';
-import { withLanguage } from '../lib/locale.js';
+import { withLanguage, LANGUAGE_REMINDER } from '../lib/locale.js';
 import { getToolSchemas, executeTool } from './tools.js';
 import { isExpertModeAllowed, isToolAllowed } from './expertModePermissions.js';
 import { isEngaged as killSwitchEngaged } from '../lib/killSwitch.js';
@@ -189,7 +189,8 @@ export async function runExpertTurn({ userId, messages, prisma, image, onToken, 
       ...(autoLine ? [autoLine] : []),
     ].join('\n') +
     (habitsBlock ? '\n\n' + habitsBlock : '') +
-    (conventionsBlock ? '\n\n' + conventionsBlock : '');
+    (conventionsBlock ? '\n\n' + conventionsBlock : '') +
+    '\n\n' + LANGUAGE_REMINDER;
 
   const finalMessages = [
     { role: 'system', content: expertSystemPrompt },

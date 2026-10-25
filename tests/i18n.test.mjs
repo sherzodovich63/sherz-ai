@@ -10,9 +10,11 @@ test('locale: normalizes tags and reads body.lang / body.ui.lang (also JSON stri
   assert.equal(langFromBody({ ui: '{"lang":"uz"}' }), 'uz'); assert.equal(langFromBody({ ui: 'not json' }), null); assert.equal(langFromBody(null), null);
 });
 test('locale: directive names the language, allows switching, keeps technical terms', () => {
-  const d = languageDirective('ru'); assert.match(d, /Russian/); assert.match(d, /language of THAT message/); assert.match(d, /untranslated/);
-  assert.equal(languageDirective('xx'), ''); assert.equal(withLanguage('SYS', null), 'SYS');
-  assert.ok(withLanguage('SYS', 'uz').startsWith('SYS\n\nLANGUAGE:'));
+  const d = languageDirective('ru'); assert.match(d, /Russian/); assert.match(d, /LATEST message/); assert.match(d, /untranslated/);
+  assert.match(d, /Translate this to English/); assert.match(d, /never choose the reply language/);   // explicit request wins; roles cannot force a language
+  assert.match(languageDirective('xx'), /LATEST message/); assert.doesNotMatch(languageDirective('xx'), /interface language/);   // unknown UI language: message language still rules
+  assert.ok(withLanguage('SYS', null).startsWith('SYS\n\nLANGUAGE'));
+  assert.ok(withLanguage('SYS', 'uz').startsWith('SYS\n\nLANGUAGE'));
 });
 
 // the dictionary: every entry has three non-empty forms, placeholders match across languages, no ambiguous duplicates
@@ -73,4 +75,13 @@ test('AI notice under the composer: three exact texts, replaces the keyboard hin
   assert.match(html, /<div class="ai-note" role="note">SHERZ is AI and can make mistakes\.<\/div>/);
   assert.doesNotMatch(html, /<div class="kbd-row">/); assert.equal((html.match(/id="refreshBtn"/g) || []).length, 1, 'duplicate id removed');
   assert.doesNotMatch(html, /<span class="kbd">Enter<\/span> send/);
+});
+
+test('language: no persona / role prompt hard-codes the reply language to Uzbek', async () => {
+  const { buildSystemPrompt } = await import('../brain/systemPrompt.js');
+  assert.doesNotMatch(buildSystemPrompt(), /Asosan o‘zbek tilida javob ber/);
+  assert.match(buildSystemPrompt(), /oxirgi xabari tilida/);
+  const { LANGUAGE_REMINDER } = await import('../lib/locale.js');
+  assert.match(LANGUAGE_REMINDER, /latest message/);
+  assert.match(fs.readFileSync(new URL('../brain/expertTurn.js', import.meta.url), 'utf8'), /LANGUAGE_REMINDER/);
 });

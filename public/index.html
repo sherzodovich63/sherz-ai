@@ -1404,6 +1404,16 @@ html.platform-ios body {
             <div class="bc-label">Thinking Mode</div>
             <div class="bc-value"><b id="brainThinkingMode">Casual Companion &amp; Long-Term Memory</b></div>
           </div>
+
+          <div class="brain-card" id="shareCard" role="group" aria-label="Shared learning">
+            <div class="bc-label">Shared learning</div>
+            <div class="share-row">
+              <div class="share-text"><b>Learn from other professionals</b><small>Learn from verified solutions across all work spaces. When you confirm that an answer worked, only the anonymized method is shared — never your name, personal data, or private files. Off by default.</small></div>
+              <button id="shareToggle" class="share-switch" type="button" role="switch" aria-checked="false" aria-label="Learn from other professionals" disabled><span class="share-knob"></span></button>
+            </div>
+            <div id="shareNote" class="share-note" role="status" aria-live="polite" hidden></div>
+            <button id="shareWithdraw" class="share-link" type="button" hidden>Remove my contributions</button>
+          </div>
         </div>
       </aside>
     </section>
@@ -1450,8 +1460,13 @@ html.platform-ios body {
           <div id="spGenNote" class="sp-note" role="status" aria-live="polite"></div>
         </section>
         <div class="sp-or"><span>or pick a role</span></div>
-        <div id="spCats" class="sp-cats" role="tablist" aria-label="Role categories"></div>
-        <div id="spRoles" class="sp-roles"></div>
+        <div class="rp-search">
+          <svg class="rp-search-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input id="spSearch" class="rp-search-in" type="search" placeholder="Search roles…" autocomplete="off" spellcheck="false" aria-label="Search roles">
+        </div>
+        <div id="spCats" class="sp-cats rp-tabs" role="tablist" aria-label="Fields"></div>
+        <div id="spRoles" class="sp-roles rp-grid" role="listbox" aria-label="Roles"></div>
+        <div id="spRolesHint" class="rp-hint" role="status" aria-live="polite"></div>
       </div>
       <label class="sp-label" for="spName">Name</label>
       <input id="spName" class="pf-input" maxlength="60" placeholder="Name of this Work Space" spellcheck="false">
@@ -1725,6 +1740,43 @@ html.platform-ios body {
       }
     }
     authReady.then(updateAuthUI);
+
+    // ✅ Shared learning (opt-in): one switch in the Brain panel. OFF by default; guests cannot turn it on.
+    (function sharedLearningUI(){
+      const sw = $('shareToggle'), note = $('shareNote'), wd = $('shareWithdraw'); if (!sw) return;
+      const say = (t) => { if (!note) return; note.textContent = t || ''; note.hidden = !t; };
+      const paint = (on) => { sw.setAttribute('aria-checked', on ? 'true' : 'false'); sw.classList.toggle('on', !!on); if (wd) wd.hidden = !on; };
+      async function load(){
+        await authReady;
+        if (!isAuthenticatedUser){ sw.disabled = true; paint(false); say('Sign in to take part.'); return; }
+        try{
+          const r = await fetchWithAuth(apiUrl('/api/solutions/settings')); const d = await r.json().catch(() => ({}));
+          if (!r.ok || !d.ok){ sw.disabled = true; paint(false); say(''); return; }
+          if (!d.available){ sw.disabled = true; paint(false); say('Not available yet on this server.'); return; }
+          sw.disabled = false; paint(!!d.enabled); say('');
+        }catch(e){ sw.disabled = true; paint(false); }
+      }
+      sw.addEventListener('click', async () => {
+        const want = sw.getAttribute('aria-checked') !== 'true'; sw.disabled = true;
+        try{
+          const r = await fetchWithAuth(apiUrl('/api/solutions/settings'), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: want }) });
+          const d = await r.json().catch(() => ({}));
+          if (r.ok && d.ok){ paint(!!d.enabled); say(d.enabled ? 'On. Only anonymized methods are shared.' : 'Off. Nothing more is shared.'); }
+          else say(d.error || 'Could not change this setting.');
+        }catch(e){ say('Could not change this setting.'); }
+        sw.disabled = false;
+      });
+      wd?.addEventListener('click', async () => {
+        wd.disabled = true;
+        try{
+          const r = await fetchWithAuth(apiUrl('/api/solutions/contributions'), { method: 'DELETE' }); const d = await r.json().catch(() => ({}));
+          say(r.ok && d.ok ? 'Your contributions were removed.' : (d.error || 'Could not remove them.'));
+        }catch(e){ say('Could not remove them.'); }
+        wd.disabled = false;
+      });
+      $('btnBrainPanel')?.addEventListener('click', load);
+      load();
+    })();
 
     $('googleLoginBtn')?.addEventListener('click', () => window.__signInWithGoogle());
     $('logoutBtn')?.addEventListener('click', () => window.__signOut());
@@ -4592,6 +4644,33 @@ function hideProactiveReturnToast(){
 
     // ═════════ Work Spaces (Phase 4) ═════════
     const SP_ICON = { briefcase: '💼', truck: '🚚', book: '📚', code: '</>', chart: '📊', flask: '⚗', pen: '✎', globe: '🌐', coins: '🪙', palette: '🎨', megaphone: '📣', cap: '🎓', wrench: '🔧' };
+    // Role icons: Lucide line icons (ISC licence), inlined so they work offline in the desktop / mobile apps.
+    // The ids match lib/spaces.js ICONS and what is already stored on existing Work Spaces.
+    const SP_SVG = {
+      briefcase: '<path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/>',
+      truck: '<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>',
+      book: '<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
+      code: '<path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/>',
+      chart: '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
+      flask: '<path d="M14 2v6a2 2 0 0 0 .245.96l5.51 10.08A2 2 0 0 1 18 22H6a2 2 0 0 1-1.755-2.96l5.51-10.08A2 2 0 0 0 10 8V2"/><path d="M6.453 15h11.094"/><path d="M8.5 2h7"/>',
+      pen: '<path d="M12 20h9"/><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z"/>',
+      globe: '<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
+      coins: '<circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/>',
+      palette: '<circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/>',
+      megaphone: '<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
+      cap: '<path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/>',
+      wrench: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+      calculator: '<rect width="16" height="20" x="4" y="2" rx="2"/><line x1="8" x2="16" y1="6" y2="6"/><line x1="16" x2="16" y1="14" y2="18"/><path d="M16 10h.01"/><path d="M12 10h.01"/><path d="M8 10h.01"/><path d="M12 14h.01"/><path d="M8 14h.01"/><path d="M12 18h.01"/><path d="M8 18h.01"/>',
+      scale: '<path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/>',
+      stethoscope: '<path d="M11 2v2"/><path d="M5 2v2"/><path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"/><path d="M8 15a6 6 0 0 0 12 0v-3"/><circle cx="20" cy="10" r="2"/>',
+      headset: '<path d="M3 11h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-5Zm0 0a9 9 0 1 1 18 0m0 0v5a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3Z"/><path d="M21 16v2a4 4 0 0 1-4 4h-5"/>',
+      trending: '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
+      newspaper: '<path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2"/><path d="M18 14h-8"/><path d="M15 18h-5"/><path d="M10 6h8v4h-8V6Z"/>',
+      cpu: '<rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/>'
+    };
+    // unknown / missing ids fall back to the briefcase, never to an emoji
+    const spSvg = (id) => '<svg class="sp-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + (SP_SVG[id] || SP_SVG.briefcase) + '</svg>';
+    const setSpIco = (el, id) => { if (el) el.innerHTML = spSvg(id); };
     const currentSpaceConv = () => { const c = currentConv(); return c && c.kind === 'space' ? c : null; };
     const spaceOfConv = (c) => c ? spaces.find(s => s.id === c.spaceId) || null : null;
     const styleInfo = (id) => (spaceMeta.styles || []).find(s => s.id === id) || { id, label: id, hint: '', icon: '◐' };
@@ -4619,7 +4698,7 @@ function hideProactiveReturnToast(){
     // the intro card in the chat follows the ACTIVE role: switching Role 1 / Role 2 (or editing it) updates it in place
     function syncSpaceIntro(cur){
       const card = feed && feed.querySelector('.space-intro'); if (!card || !cur) return;
-      const ico = card.querySelector('.pi-ico'); if (ico) ico.textContent = SP_ICON[cur.icon] || '💼';
+      const ico = card.querySelector('.pi-ico'); setSpIco(ico, cur.icon);
       const t = card.querySelector('.pi-title'); if (t) t.textContent = cur.name;
       let g = card.querySelector('.pi-goal');
       if (cur.role){ if (!g){ g = document.createElement('div'); g.className = 'pi-goal'; (t || card.firstChild).after(g); } g.textContent = cur.role; }
@@ -4635,7 +4714,7 @@ function hideProactiveReturnToast(){
       const add = $('hubAddRole');                                                    // no "Create" row in the menu: the card creates the first Space, this chip adds the 2nd role
       if (add){ add.hidden = !(spaceNeedsPick || (one && one.canAddRole && one.roles.length < 2)); add.disabled = add.hidden; add.textContent = spaceNeedsPick ? 'Keep one…' : '+ Add Persona'; }
       $('hubCard').className = 'hub-card' + (cur ? ' active sp-' + cur.color : '');
-      $('hubAvatar').textContent = cur ? (SP_ICON[cur.icon] || '💼') : '✦';
+      if (cur) setSpIco($('hubAvatar'), cur.icon); else $('hubAvatar').textContent = '✦';
       $('hubName').textContent = cur ? cur.name : (spaceNeedsPick ? 'Choose your Work Space' : 'Create your Work Space');
       $('hubSub').textContent = cur ? ((cur.role ? cur.role + ' · ' : '') + styleInfo(cur.style).label) : (spaceNeedsPick ? 'You have older Spaces — keep one' : 'Pick a role or describe yours');
       syncSpaceIntro(cur);
@@ -4648,7 +4727,7 @@ function hideProactiveReturnToast(){
         const on = r.n === one.activeRole;
         const b = document.createElement('button'); b.type = 'button'; b.className = 'hub-item sp-' + r.color + (on ? ' on' : ''); b.dataset.role = String(r.n);
         b.setAttribute('role', 'option'); b.setAttribute('aria-selected', on ? 'true' : 'false');
-        const av = document.createElement('span'); av.className = 'hub-avatar sm'; av.setAttribute('aria-hidden', 'true'); av.textContent = SP_ICON[r.icon] || '💼';
+        const av = document.createElement('span'); av.className = 'hub-avatar sm'; av.setAttribute('aria-hidden', 'true'); setSpIco(av, r.icon);
         const tx = document.createElement('span'); tx.className = 'hub-text';
         const n = document.createElement('span'); n.className = 'hub-name'; n.textContent = r.name;
         const m = document.createElement('span'); m.className = 'hub-sub'; m.textContent = 'Role ' + r.n + (on ? ' · active' : '') + ' · ' + styleInfo(r.style).label;
@@ -4659,7 +4738,7 @@ function hideProactiveReturnToast(){
       else for (const s of spaces){
         const b = document.createElement('button'); b.type = 'button'; b.className = 'hub-item sp-' + s.color + (cur && cur.id === s.id ? ' on' : ''); b.dataset.space = s.id;
         b.setAttribute('role', 'option'); b.setAttribute('aria-selected', cur && cur.id === s.id ? 'true' : 'false');
-        const av = document.createElement('span'); av.className = 'hub-avatar sm'; av.setAttribute('aria-hidden', 'true'); av.textContent = SP_ICON[s.icon] || '💼';
+        const av = document.createElement('span'); av.className = 'hub-avatar sm'; av.setAttribute('aria-hidden', 'true'); setSpIco(av, s.icon);
         const tx = document.createElement('span'); tx.className = 'hub-text';
         const n = document.createElement('span'); n.className = 'hub-name'; n.textContent = s.name;
         const m = document.createElement('span'); m.className = 'hub-sub'; m.textContent = (s.skillCount || 0) + ' skill' + (s.skillCount === 1 ? '' : 's') + ' · ' + styleInfo(s.style).label;
@@ -4718,19 +4797,27 @@ function hideProactiveReturnToast(){
       if (!keepName || !$('spName').value.trim()) $('spName').value = p.name || p.label || '';
       $('spRole').value = p.role || ''; $('spInstr').value = p.instructions || ''; spSetStyle(p.style || 'general'); spMeter();
     }
+    // Role picker: "All" shows one featured role per field; a field tab lists that field; the search box looks through every role.
+    const spAllRoles = () => (spaceMeta.categories || []).flatMap(c => (c.roles || []).map(r => ({ ...r, _cat: c.id, _catLabel: c.label })));
+    const spMatches = (r, q) => { const hay = (r.label + ' ' + (r.role || '') + ' ' + (r.keywords || '') + ' ' + (r._catLabel || '')).toLowerCase(); return q.split(/\s+/).filter(Boolean).every(w => hay.includes(w)); };
     function spRenderCats(){
       const cats = $('spCats'); cats.textContent = '';
-      for (const c of (spaceMeta.categories || [])){
+      const tabs = [{ id: 'all', label: 'All' }].concat((spaceMeta.categories || []).map(c => ({ id: c.id, label: c.label })));
+      if (!tabs.some(t => t.id === spCat)) spCat = 'all';
+      for (const c of tabs){
         const b = document.createElement('button'); b.type = 'button'; b.className = 'sp-cat' + (c.id === spCat ? ' on' : ''); b.dataset.cat = c.id; b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', c.id === spCat ? 'true' : 'false');
-        b.textContent = (SP_ICON[c.icon] || '') + ' ' + c.label; b.addEventListener('click', () => { spCat = c.id; spRenderCats(); });
+        b.textContent = c.label; b.addEventListener('click', () => { spCat = c.id; const q = $('spSearch'); if (q) q.value = ''; spRenderCats(); });
         cats.appendChild(b);
       }
+      const q = (($('spSearch') || {}).value || '').trim().toLowerCase();
+      const all = spAllRoles();
+      const list = q ? all.filter(r => spMatches(r, q)) : spCat === 'all' ? all.filter(r => r.featured) : all.filter(r => r._cat === spCat);
       const box = $('spRoles'); box.textContent = '';
-      const cat = (spaceMeta.categories || []).find(c => c.id === spCat); if (!cat) return;
-      for (const r of cat.roles){
+      for (const r of list){
         const b = document.createElement('button'); b.type = 'button'; b.className = 'sp-role sp-' + r.color + (spDraft.preset === r.id ? ' on' : ''); b.dataset.role = r.id;
-        const i = document.createElement('span'); i.className = 'sp-role-ico'; i.textContent = SP_ICON[r.icon] || '💼';
-        const t = document.createElement('span'); t.className = 'sp-role-txt'; const l = document.createElement('b'); l.textContent = r.label; const h = document.createElement('small'); h.textContent = styleInfo(r.style).label; t.append(l, h);
+        b.setAttribute('role', 'option'); b.setAttribute('aria-selected', spDraft.preset === r.id ? 'true' : 'false');
+        const i = document.createElement('span'); i.className = 'sp-role-ico'; setSpIco(i, r.icon);
+        const t = document.createElement('span'); t.className = 'sp-role-txt'; const l = document.createElement('b'); l.textContent = r.label; const h = document.createElement('small'); h.textContent = q || spCat === 'all' ? r._catLabel : styleInfo(r.style).label; t.append(l, h);
         b.append(i, t);
         b.addEventListener('click', () => {
           spDraft = { preset: r.id, icon: r.icon, color: r.color };
@@ -4739,7 +4826,10 @@ function hideProactiveReturnToast(){
         });
         box.appendChild(b);
       }
+      const hint = $('spRolesHint');
+      if (hint) hint.textContent = !list.length ? 'No matching role. Describe your role above and SHERZ will build it for you.' : (!q && spCat === 'all') ? 'Featured roles. Search, or choose a field, to see more. You can also describe any role above.' : '';
     }
+    $('spSearch')?.addEventListener('input', () => spRenderCats());
     async function spGenerate(){
       const desc = $('spDesc').value.replace(/\s+/g, ' ').trim(), note = $('spGenNote'), btn = $('spGenerate');
       note.className = 'sp-note'; if (desc.length < 3){ note.textContent = 'Describe your role in a few words.'; note.classList.add('err'); $('spDesc').focus(); return; }
@@ -4772,7 +4862,7 @@ function hideProactiveReturnToast(){
       spDraft = { preset: 'blank', icon: 'briefcase', color: 'violet' };
       spRenderStyles();
       if (space){ $('spName').value = space.name; $('spRole').value = space.role || ''; $('spInstr').value = space.instructions || ''; spSetStyle(space.style || 'general'); spMeter(); }
-      else { spCat = (spaceMeta.categories[0] || {}).id || null; $('spName').value = ''; $('spRole').value = ''; $('spInstr').value = ''; spSetStyle('general'); spRenderCats(); spMeter(); }
+      else { spCat = 'all'; { const q = $('spSearch'); if (q) q.value = ''; } $('spName').value = ''; $('spRole').value = ''; $('spInstr').value = ''; spSetStyle('general'); spRenderCats(); spMeter(); }
       resetSkillForm(); spTab(space && tab === 'skills' ? 'skills' : 'profile');
       $('spaceModal').hidden = false; document.body.classList.add('sp-open');
       if (space && tab === 'skills') loadSkills(); else setTimeout(() => $(space ? 'spName' : 'spDesc').focus(), 40);
@@ -4894,7 +4984,7 @@ function hideProactiveReturnToast(){
       const s = spaceOfConv(c);
       const wrap = document.createElement('div'); wrap.className = 'bubble ai stable project-intro space-intro';
       wrap.innerHTML =
-        '<div class="pi-kicker"><span class="pi-ico">' + esc(SP_ICON[(s && s.icon) || 'briefcase'] || '💼') + '</span> Work Space</div>' +
+        '<div class="pi-kicker"><span class="pi-ico">' + spSvg((s && s.icon) || 'briefcase') + '</span> Work Space</div>' +
         '<div class="pi-title">' + esc((s && s.name) || c.title) + '</div>' + (s && s.role ? '<div class="pi-goal">' + esc(s.role) + '</div>' : '') +
         '<p class="pi-text">This Space has its own role, rules and skills, separate from your Companion thread. Teach it procedures and it will use them when your message matches.</p>';
       const sug = document.createElement('div'); sug.className = 'suggest';
@@ -4913,7 +5003,7 @@ function hideProactiveReturnToast(){
         const items = withNone ? [{ id: null, name: 'No second role', role: '', icon: 'briefcase', color: 'violet' }, ...spaces.filter(s => s.id !== pkKeep)] : spaces;
         for (const s of items){
           const b = document.createElement('button'); b.type = 'button'; b.className = 'pk-item' + (cur === s.id ? ' on' : ''); b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', cur === s.id ? 'true' : 'false'); b.dataset.id = s.id || '';
-          const i = document.createElement('span'); i.className = 'pk-ico'; i.textContent = s.id ? (SP_ICON[s.icon] || '💼') : '–';
+          const i = document.createElement('span'); i.className = 'pk-ico'; if (s.id) setSpIco(i, s.icon); else i.textContent = '–';
           const t = document.createElement('span'); t.className = 'pk-txt'; const n = document.createElement('b'); n.textContent = s.name; const m = document.createElement('small'); m.textContent = s.id ? (s.role || 'Work Space') + ' · ' + (s.skillCount || 0) + ' skills' : 'Only one role for now';
           t.append(n, m); b.append(i, t); b.addEventListener('click', () => { set(s.id); pkRender(); }); box.appendChild(b);
         }

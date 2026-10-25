@@ -544,3 +544,39 @@ model GeneratedFile {
 
   @@index([userId, createdAt])
 }
+
+// ── Shared learning (opt-in) ──
+model SharedSolution {
+  id              String    @id @default(cuid())
+  roleGroup       String    // "dispatcher" | "developer" | "analyst"
+  lang            String    @default("en")
+  problem         String    // anonymized, general description of the problem
+  keywords        String    @default("") // lower-case words, space separated (fallback search)
+  solution        String    // anonymized, general method that worked
+  conditions      String    @default("") // when it applies / does not apply
+  embedding       Json?     // number[] of the problem (cosine search)
+  status          String    @default("candidate") // candidate | trusted | hidden
+  confirmCount    Int       @default(0) // distinct users who said it worked
+  failCount       Int       @default(0) // distinct users who said it did not
+  lastConfirmedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  confirmations   SolutionConfirmation[]
+
+  @@index([roleGroup, status])
+  @@index([updatedAt])
+}
+
+model SolutionConfirmation {
+  id         String   @id @default(cuid())
+  solutionId String
+  userHash   String   // salted hash of the user id — never the id itself
+  outcome    String   // "worked" | "failed"
+  createdAt  DateTime @default(now())
+
+  solution   SharedSolution @relation(fields: [solutionId], references: [id], onDelete: Cascade)
+
+  @@unique([solutionId, userHash])
+  @@index([userHash])
+}

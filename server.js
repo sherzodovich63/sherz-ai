@@ -28,7 +28,10 @@ import { runBrain, resetFriendBrainState } from './brain/brain.js'; // ✅ FIX: 
 import * as killSwitch from './lib/killSwitch.js'; // ✅ Sprint 3 admin layer
 import adminRouter from './routes/admin.js'; // ✅ Sprint 3 admin layer
 import { spacesRouter } from './routes/spaces.js';      // ✅ Work Spaces + Skills (Phase 4)
-import { loadWorkMode } from './lib/spaces.js';
+import { loadWorkMode, setSolutionsProvider } from './lib/spaces.js';
+import { createSharedSolutions } from './lib/sharedSolutions.js';          // opt-in shared learning (Work Space roles)
+import { createSolutionsRuntime } from './lib/solutionsRuntime.js';
+import { solutionsRouter } from './routes/solutions.js';
 import { wantsDocFile } from './lib/docs/intent.js';
 import { docFollowUpRequest, hasFakeFileLink, stripFakeFileLinks, hasFileCreationClaim, FILE_NOT_CREATED_NOTE } from './lib/docs/followup.js';
 import { filesRouter } from './routes/files.js';        // ✅ Excel/Word files (Phase 5)
@@ -1799,6 +1802,7 @@ async function runBrainFlow(userId, clean, image, { onToken, expertMode = false,
     let conv = conversation || null;
     if (!conv) { try { conv = await resolveConversation(prisma, userId, conversationId); } catch (e) { /* non-fatal */ } }
     if (conv) conversationId = conv.id;
+    if (conv) solutionsRuntime.onUserTurn({ userId, conv, text: clean });   // shared learning: "it worked" / "it didn't" (opt-in, fire-and-forget)
     const workMode = await loadWorkMode(prisma, userId, conv, clean);   // Project → Work mode; Work Space chat → + profile & matching skills
 
     let history = [];
@@ -2115,6 +2119,23 @@ else console.warn('[files] GeneratedFile model missing — using in-memory file 
 app.use('/api/files', filesRouter({ isProd, ensureUser: ensureGuestUser }));   // Phase 5
 app.use('/api/greeting', greetingRouter({ isProd, ensureUser: ensureGuestUser, service: createGreetingService({ openai, prisma }) }));   // fresh opening line for an empty chat
 app.use('/api/spaces', spacesRouter({ prisma, isProd, ensureUser: ensureGuestUser, llm: spaceGeneratorLlm }));   // Phase 4
+// ── Shared learning (opt-in, Work Space roles only): needs prisma/SharedSolutions.prisma.txt appended to schema.prisma + `npx prisma db push` ──
+const solutionsService = createSharedSolutions({
+  prisma,
+  embed: async (text) => (await openai.embeddings.create({ model: process.env.OPENAI_EMBED_MODEL || 'text-embedding-3-small', input: text }, { timeout: 8000 })).data?.[0]?.embedding || null,
+  llm: async ({ system, user }) => {
+    const r = await openai.chat.completions.create({
+      model: process.env.SHERZ_DISTILL_MODEL || process.env.SHERZ_FAST_MODEL || 'gpt-4o-mini',
+      messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+      response_format: { type: 'json_object' }, temperature: 0, max_tokens: 600,
+    }, { timeout: 20000 });
+    return r.choices?.[0]?.message?.content || '';
+  },
+});
+const solutionsRuntime = createSolutionsRuntime({ prisma, service: solutionsService });
+setSolutionsProvider(solutionsRuntime.provider);
+if (!solutionsService.ready()) console.warn('[solutions] SharedSolution tables missing — shared learning is off. Append prisma/SharedSolutions.prisma.txt to schema.prisma and run: npx prisma db push && npx prisma generate');
+app.use('/api/solutions', solutionsRouter({ service: solutionsService, isProd, ensureUser: ensureGuestUser }));
 app.use('/api/agent', agentRouter({ gate: agentGate, trust, runs: agentRuns, consent: agentConsent, autonomy: agentAutonomy, conventions, evidence: (a) => skillDecision(prisma, a), buildTurn: agentBuildTurn, saveReply: agentSaveReply, isProd }));
 
 app.post('/api/chat', chatImage, async (req, res) => {
