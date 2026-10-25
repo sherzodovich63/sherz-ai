@@ -15,13 +15,19 @@ ok('loads the bundled app under app://sherz', page.url().startsWith('app://sherz
 const info = await page.evaluate(() => ({ plat: window.SherzNative && window.SherzNative.platform, native: window.SherzNative && window.SherzNative.isNative, attr: document.documentElement.getAttribute('data-native'), api: window.CONFIG && window.CONFIG.API_URL, lang: document.documentElement.lang, node: typeof require, proc: typeof process }));
 ok('native bridge: platform=desktop, API → backend', info.plat === 'desktop' && info.native && info.attr === 'desktop' && /localhost:\d+$/.test(info.api), JSON.stringify(info));
 ok('page has NO Node access (sandbox + isolation)', info.node === 'undefined' && info.proc === 'undefined');
-if (!PACKED) ok('web app booted (guest session via the backend, CORS from app://sherz works)', state.guestIds.length > 0 || (await page.evaluate(() => !!localStorage.getItem('sherz_guest_token'))));
+ok('web app booted (guest session via the backend, CORS from app://sherz works)', state.guestIds.length > 0 || (await page.evaluate(() => !!localStorage.getItem('sherz_guest_token'))));
 ok('i18n runs inside the shell', !!(await page.evaluate(() => window.SherzI18n && window.SherzI18n.lang)));
 ok('desktop settings block appears in the menu hub', !!(await page.$('#hubDesktopSec')));
 // path traversal is refused
 const trav = await page.evaluate(async () => { try { const r = await fetch('app://sherz/%2e%2e/%2e%2e/desktop/package.json'); return r.status; } catch (e) { return 'err'; } });
 ok('../ escape from the bundle is refused', trav === 403 || trav === 404 || trav === 'err', String(trav));
 const idx = await page.evaluate(async () => (await fetch('app://sherz/native.js')).status); ok('bundled files are served', idx === 200);
+// relative backend calls (script.js does fetch('/api/…')) reach the real backend; a missing file is a clean 404, not a crash
+if (!PACKED) ok('relative fetch("/health") is sent to the backend (shim)', (await page.evaluate(() => fetch('/health').then((r) => r.status).catch((e) => 'err:' + e.message))) === 200);
+ok('a missing bundled file answers 404 (no exception)', (await page.evaluate(() => fetch('app://sherz/does-not-exist.png').then((r) => r.status).catch(() => 'err'))) === 404);
+ok('the window uses the SHERZ icon file', await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length > 0) && fs.existsSync(`${APPS}/desktop/build/icon.png`));
+await page.evaluate(() => { document.title = 'SHERZ AI'; }); await page.waitForTimeout(200);
+ok('window title stays "SHERZ" whatever the page title says', (await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getTitle())) === 'SHERZ');
 // links never navigate the app away
 await page.evaluate(() => { location.href = 'https://example.com/'; }); await page.waitForTimeout(600);
 ok('navigating to a foreign site is blocked', page.url().startsWith('app://sherz/'), page.url());
@@ -43,7 +49,6 @@ await page.evaluate(() => { window.dispatchEvent(new Event('online')); window.Sh
 // download goes to the Downloads folder
 fs.mkdirSync(home + '/Downloads', { recursive: true });
 await page.evaluate(() => window.SherzNative.saveBlob(new Blob(['hello'], { type: 'text/plain' }), 'hisobot.txt')); await page.waitForTimeout(1200);
-/* the packaged bundle has the backend URL from build time, so the guest-session check only runs against the dev shell */
 const dlDir = await app.evaluate(({ app }) => app.getPath('downloads')); const dl = fs.existsSync(dlDir) ? fs.readdirSync(dlDir) : []; console.log('INFO  downloads dir:', dlDir);
 ok('a file download lands in Downloads without a dialog', dl.includes('hisobot.txt'), JSON.stringify(dl));
 // Google sign-in hand-back

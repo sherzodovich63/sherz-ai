@@ -1243,8 +1243,8 @@ html.platform-ios body {
             </button>
             <div id="hubActions" class="hub-actions" hidden>
               <button id="hubSkills" class="hub-chip" type="button">★ Skills <span id="hubSkillCount" class="hub-chip-n">0</span></button>
-              <button id="hubEdit" class="hub-chip" type="button">Edit profile</button>
-              <button id="hubAddRole" class="hub-chip" type="button" hidden>+ 2nd role</button>
+              <button id="hubEdit" class="hub-chip" type="button">Role &amp; Rules</button>
+              <button id="hubAddRole" class="hub-chip" type="button" hidden>+ Add Persona</button>
             </div>
             <div id="spaceMenu" class="hub-menu" role="listbox" aria-label="Your Work Spaces" hidden>
               <div id="spaceList" class="hub-list"></div>
@@ -1355,8 +1355,8 @@ html.platform-ios body {
 <footer class="dock" id="dock">
 <div class="voice-bar" id="voiceBar">
   <span class="voice-bar-spacer" aria-hidden="true"></span>
-  <button id="heroMic" class="hero-mic" type="button" title="Tap to talk" aria-label="Tap to talk">🎙️</button>
-  <span class="voice-bar-spacer" id="kbdSlot"><button id="kbdToggle" class="kbd-toggle" type="button" title="Chat bar" aria-label="Toggle chat bar" aria-expanded="false">⌨️</button></span>
+  <button id="heroMic" class="hero-mic" type="button" title="Tap to talk" aria-label="Tap to talk"><svg class="ic-mic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+  <span class="voice-bar-spacer" id="kbdSlot"><button id="kbdToggle" class="kbd-toggle" type="button" title="Chat bar" aria-label="Toggle chat bar" aria-expanded="false"><svg class="ic-kbd" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6.5 10h.01M10 10h.01M14 10h.01M17.5 10h.01M7 14h10"/></svg><svg class="ic-close" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></span>
 </div>
 
 <div class="composer-shell collapsed" id="composerShell">
@@ -1369,13 +1369,12 @@ html.platform-ios body {
 
     <div class="composer">
         <div class="input-pill">
-            <button id="toggleDrawer2" class="icon-btn" type="button">=</button>
-            <textarea id="text" class="ta" placeholder="Ask anything..."></textarea>
-
             <input type="file" id="fileInput" style="display: none;" accept="image/*">
-            <button id="attachBtn" class="icon-btn" type="button">📎</button>
-            
-            <button id="send" class="send" type="button">
+            <button id="attachBtn" class="icon-btn attach-plus" type="button" title="Attach a picture" aria-label="Attach a picture"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+            <textarea id="text" class="ta" rows="1" placeholder="Got a problem? We'll solve it together."></textarea>
+
+            <button id="pillMic" class="icon-btn pill-mic" type="button" title="Talk" aria-label="Talk"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+            <button id="send" class="send" type="button" title="Send" aria-label="Send">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M2 21l21-9L2 3v7l15 2-15 2z"/>
                 </svg>
@@ -1545,6 +1544,18 @@ html.platform-ios body {
       const p = jwtPayload(t);
       return !!(p && p.id && !String(p.id).startsWith('guest_') && (!p.exp || p.exp * 1000 > Date.now() + 30000));
     }
+    // A stored account token worth keeping: a real account token that is still valid OR expired for
+    // less than 30 days — the latter is renewed silently via /api/auth/refresh instead of being
+    // dropped (that drop is what turned returning users into a fresh Guest after 7 days).
+    const TOKEN_GRACE_MS = 30 * 86400000;
+    function tokenRecoverable(t){
+      const p = jwtPayload(t);
+      return !!(p && p.id && !String(p.id).startsWith('guest_') && (!p.exp || p.exp * 1000 + TOKEN_GRACE_MS > Date.now()));
+    }
+    function tokenNeedsRefresh(t){
+      const p = jwtPayload(t);
+      return !!(p && p.exp && p.exp * 1000 < Date.now() + 3 * 86400000);   // expired, or < 3 days left
+    }
     function rememberUser(name, email){
       authUser = { name: name || authUser.name, email: email || authUser.email };
       try{
@@ -1592,7 +1603,7 @@ html.platform-ios body {
         localStorage.removeItem('sherz_guest_id');   // guests are no longer persisted
         if (!isAuthenticatedUser){
           const t = localStorage.getItem(USER_TOKEN_KEY);
-          if (t && tokenUsable(t)) setUserToken(t);
+          if (t && tokenRecoverable(t)) setUserToken(t);
           else if (t) localStorage.removeItem(USER_TOKEN_KEY);
         }
         if (isAuthenticatedUser){
@@ -1628,7 +1639,23 @@ html.platform-ios body {
     // Resolves once identity is settled. A stored account token is validated with /api/auth/me:
     // only an explicit 401/403 drops it — a network blip must never sign the user out.
     const authReady = (async () => {
-      if (isAuthenticatedUser){
+      if (isAuthenticatedUser && tokenNeedsRefresh(userToken)){
+        // Silent renewal: only an explicit 401/403/404 from the server ends the session;
+        // a network error or a 5xx keeps the stored login untouched.
+        try{
+          const rr = await fetch(apiUrl('/api/auth/refresh'), { method: 'POST', headers: { 'Authorization': `Bearer ${userToken}` } });
+          if (rr.ok){
+            const d = await rr.json().catch(() => ({}));
+            if (d.ok && d.token && tokenUsable(d.token)){ setUserToken(d.token); rememberUser(d.user?.name, d.user?.email); }
+          } else if (rr.status === 401 || rr.status === 403){
+            clearUserSession();
+          }
+        }catch(e){
+          console.warn('[auth] token refresh unreachable — keeping stored session:', e.message);
+        }
+      }
+      // still expired here = the refresh could not be completed (offline / 5xx): keep the login, skip /me
+      if (isAuthenticatedUser && !(jwtPayload(userToken)?.exp * 1000 < Date.now())){
         try{
           const r = await fetch(apiUrl('/api/auth/me'), { headers: { 'Authorization': `Bearer ${userToken}` } });
           if (r.status === 401 || r.status === 403){
@@ -3383,7 +3410,7 @@ html.platform-ios body {
 
     // Drawer open/close
     // The composer "=" button opens the Menu hub (account · appearance · tools)
-    $('toggleDrawer2').onclick = ()=> window.__openMenuHub && window.__openMenuHub();
+    // (the old "=" button is gone: the Menu button in the header opens the same hub)
 
     // Clear
     $('clear').addEventListener('click', ()=> deleteCurrentProject());
@@ -3443,10 +3470,13 @@ html.platform-ios body {
         else if (micBtnReal) micBtnReal.click();
       });
     }
+    { const pm = $('pillMic');                                     // mic inside the open chat bar: same engine as the big mic; turns green while recording
+      if (pm && heroMicBtn){ pm.addEventListener('click', ()=> heroMicBtn.click());
+        new MutationObserver(()=> pm.classList.toggle('listening', heroMicBtn.classList.contains('listening'))).observe(heroMicBtn, { attributes:true, attributeFilter:['class'] }); } }
     const kbdToggleBtn = $('kbdToggle');
     const composerShellEl = $('composerShell');
     if (kbdToggleBtn && composerShellEl){
-      const kbdSlot = $('kbdSlot'), sendBtnEl = $('send');
+      const kbdSlot = $('kbdSlot'), sendBtnEl = $('pillMic') || $('send');   // order inside the bar: [+] [text] [close ⌨] [mic] [send]
       const placeKbd = (open)=>{
         // open → sits right next to Send inside the input bar; closed → back beside the mic
         if (open && sendBtnEl) sendBtnEl.parentNode.insertBefore(kbdToggleBtn, sendBtnEl);
@@ -3454,11 +3484,18 @@ html.platform-ios body {
         kbdToggleBtn.classList.toggle('active', open);
         kbdToggleBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
       };
+      // open: the bar pops in (CSS keyframes on :not(.collapsed)); close: it plays the exit animation first (.closing), THEN it is hidden and the mic / keyboard buttons come back
+      let closeTimer = null;
+      const finishClose = ()=>{ clearTimeout(closeTimer); closeTimer = null; composerShellEl.classList.remove('closing'); composerShellEl.classList.add('collapsed'); placeKbd(false); };
       kbdToggleBtn.addEventListener('click', ()=>{
-        const opening = composerShellEl.classList.contains('collapsed');
-        composerShellEl.classList.toggle('collapsed', !opening);
-        placeKbd(opening);
-        if (opening) $('text')?.focus();
+        const hidden = composerShellEl.classList.contains('collapsed'), leaving = composerShellEl.classList.contains('closing');
+        if (hidden || leaving){                                   // → open (also when pressed again in the middle of closing)
+          clearTimeout(closeTimer); closeTimer = null;
+          composerShellEl.classList.remove('closing', 'collapsed'); placeKbd(true); $('text')?.focus();
+        } else {                                                  // → close
+          composerShellEl.classList.add('closing');
+          closeTimer = setTimeout(finishClose, 300);              // = the .closing animation length in the CSS (.28s) + a little
+        }
       });
     }
 
@@ -4596,7 +4633,7 @@ function hideProactiveReturnToast(){
       $('spaceCount').textContent = one ? one.roles.length + '/2' : String(spaces.length);
       const cur = spaceOfConv(currentSpaceConv()) || one;
       const add = $('hubAddRole');                                                    // no "Create" row in the menu: the card creates the first Space, this chip adds the 2nd role
-      if (add){ add.hidden = !(spaceNeedsPick || (one && one.canAddRole)); add.textContent = spaceNeedsPick ? 'Keep one…' : '+ 2nd role'; }
+      if (add){ add.hidden = !(spaceNeedsPick || (one && one.canAddRole && one.roles.length < 2)); add.disabled = add.hidden; add.textContent = spaceNeedsPick ? 'Keep one…' : '+ Add Persona'; }
       $('hubCard').className = 'hub-card' + (cur ? ' active sp-' + cur.color : '');
       $('hubAvatar').textContent = cur ? (SP_ICON[cur.icon] || '💼') : '✦';
       $('hubName').textContent = cur ? cur.name : (spaceNeedsPick ? 'Choose your Work Space' : 'Create your Work Space');

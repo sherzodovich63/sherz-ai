@@ -45,6 +45,12 @@ export function authRequired(req, res, next) {
     req.user = decoded; // { id, email, iat, exp, ... }
     next();
   } catch (err) {
+    // A server misconfiguration is NOT the client's fault: answering 403 would make the app
+    // throw away a perfectly good stored login. 500 keeps the session on the device.
+    if (String(err?.message || '').startsWith('JWT_SECRET')) {
+      console.error('[auth] ' + err.message);
+      return res.status(500).json({ ok: false, error: 'Server auth is not configured' });
+    }
     const expired = err.name === 'TokenExpiredError';
     return res.status(403).json({
       ok: false,
@@ -70,4 +76,20 @@ export function optionalAuth(req, _res, next) {
     req.user = null;
   }
   next();
+}
+
+
+/**
+ * Verify a token's signature but tolerate expiry up to `graceDays` — used ONLY by the refresh
+ * endpoint so a returning user whose 7-day token lapsed is renewed instead of dropped to Guest.
+ * Returns the payload, or null when the signature is bad / the token is older than the grace window.
+ */
+export function verifyJwtWithGrace(token, graceDays = 30) {
+  try {
+    const decoded = jwt.verify(token, getSecret(), { ignoreExpiration: true });
+    if (decoded?.exp && decoded.exp * 1000 + graceDays * 86400000 < Date.now()) return null;
+    return decoded;
+  } catch {
+    return null;
+  }
 }

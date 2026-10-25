@@ -9,9 +9,13 @@
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder",
-    "dist:win": "electron-builder --win",
+    "dist:win": "electron-builder --win --publish never",
+    "build:exe": "electron-builder --win nsis --x64 --publish never",
+    "release:win": "electron-builder --win nsis --x64 --publish always",
     "dist:mac": "electron-builder --mac",
-    "dist:linux": "electron-builder --linux"
+    "dist:linux": "electron-builder --linux",
+    "icons": "electron src/make-icons.cjs",
+    "debug": "electron . --sherz-debug"
   },
   "dependencies": {
     "electron-updater": "^6.3.9"

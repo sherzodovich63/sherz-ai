@@ -219,15 +219,20 @@ test('HTTP: /generate (template without llm; AI with llm), validation 400, hourl
   const b = await serve(db); try { const r = await b.j('POST', '/generate', { description: 'freight dispatcher' }); assert.equal(r.body.source, 'template'); assert.equal(r.body.matched, 'logistics.dispatcher'); } finally { b.close(); }
 });
 
-test('roles: a second role can be added, switched, edited and removed — inside the SAME Work Space (skills and chats are shared)', async () => {
+test('roles: a second role can be added, switched, edited and removed — inside the SAME Work Space (skills are shared, every role has its OWN chat)', async () => {
   const db = spacesDb();
   const s = await createSpace(db, U, { name: 'Dispatcher', preset: 'dispatcher' });
   await teachSkill(db, U, s.id, { name: 'Tender check', summary: 's', body: 'abc' });
   const o = await openSpaceConversation(db, U, s.id);
   const two = await setSecondRole(db, U, s.id, { name: 'TDIU Student', preset: 'student' });
   assert.equal(two.activeRole, 2); assert.equal(two.name, 'TDIU Student'); assert.equal(two.canAddRole, false); assert.deepEqual(two.roles.map((r) => r.name), ['Dispatcher', 'TDIU Student']);
-  assert.equal(db.T.workSpace.length, 1); assert.equal(db.T.conversation[0].title, 'TDIU Student');                       // one row, one chat; the title follows the active role
-  let wm = await loadWorkMode(db, U, { ...o.conversation, kind: 'space', spaceId: s.id }, 'tender');
+  assert.equal(db.T.workSpace.length, 1); assert.equal(db.T.conversation[0].title, 'Dispatcher');                         // one row; role 1 keeps its own chat and title
+  const o2 = await openSpaceConversation(db, U, s.id);                                                                         // active role is 2 → a NEW, empty chat that belongs to role 2
+  assert.notEqual(o2.conversation.id, o.conversation.id); assert.equal(o2.conversation.role, 2); assert.equal(o2.conversation.title, 'TDIU Student'); assert.equal(o.conversation.role, 1);
+  assert.equal((await openSpaceConversation(db, U, s.id)).conversation.id, o2.conversation.id);                                // reopening role 2 → the same role-2 chat
+  assert.equal((await openSpaceConversation(db, U, s.id, { role: 1 })).conversation.id, o.conversation.id);                    // role 1 → its old chat, untouched
+  assert.equal(workModeFor(db.T.conversation.find((c) => c.id === o2.conversation.id)).description, '');                      // the role marker never reaches the model
+  let wm = await loadWorkMode(db, U, { ...o2.conversation, kind: 'space', spaceId: s.id, description: 'sherz:role2' }, 'tender');
   assert.match(wm.space.block, /TDIU Student/); assert.ok(!/Dispatcher/.test(wm.space.block.split('\n')[0])); assert.equal(wm.space.id, s.id);
   assert.match(wm.space.block, /Tender check/);                                                                                 // the skill is the Work Space's, whichever role is active
   assert.equal((await updateSpace(db, U, s.id, { role: 'Economics tutor' })).roles[1].role, 'Economics tutor');                 // editing while role 2 is active edits role 2
@@ -235,7 +240,8 @@ test('roles: a second role can be added, switched, edited and removed — inside
   const back = await setActiveRole(db, U, s.id, 1); assert.equal(back.name, 'Dispatcher'); assert.equal(db.T.conversation[0].title, 'Dispatcher');
   wm = await loadWorkMode(db, U, { ...o.conversation, kind: 'space', spaceId: s.id }, 'x'); assert.match(wm.space.block.split('\n')[0], /Dispatcher/);
   await assert.rejects(() => setActiveRole(db, U, s.id, 3), /1 or 2/);
-  const gone = await removeSecondRole(db, U, s.id); assert.equal(gone.roles.length, 1); assert.equal(gone.activeRole, 1); assert.equal(gone.canAddRole, true);
+  const gone = await removeSecondRole(db, U, s.id); assert.equal(db.T.conversation.length, 1); assert.equal(db.T.conversation[0].id, o.conversation.id);   // role 2's chat goes with it, role 1's stays
+  assert.equal(gone.roles.length, 1); assert.equal(gone.activeRole, 1); assert.equal(gone.canAddRole, true);
   await assert.rejects(() => setActiveRole(db, U, s.id, 2), /no second role/);
   assert.equal(await setSecondRole(db, 'u2', s.id, { name: 'x' }), null); assert.equal(await setActiveRole(db, 'u2', s.id, 1), null);   // not theirs
   await assert.rejects(() => setSecondRole(db, U, s.id, { name: '  ' }), /name required/);

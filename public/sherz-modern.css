@@ -198,9 +198,11 @@ html,body{ height:100%; overflow:hidden; }
 
 /* ── header brand: orb + wordmark ── */
 .brand{ display:flex; align-items:center; gap:10px; }
-.brand #orbShell{ width:36px; height:36px; flex:none; transition:transform .16s var(--ease), box-shadow .35s; }
+.brand #orbShell{ width:26px; height:26px; flex:none; transition:transform .16s var(--ease), box-shadow .35s; }
+.brand #orbShell{ display:block; overflow:visible; }
+.brand #orbCanvas{ display:block; width:100%; height:100%; border-radius:0; object-fit:contain; }
 .brand #orbShell::after{ top:calc(100% + 4px); bottom:auto; z-index:50; }
-@media (max-width:640px){ .brand #orbShell{ width:32px; height:32px; } }
+@media (max-width:640px){ .brand #orbShell{ width:24px; height:24px; } }
 
 /* ── voice bar: [spacer] [mic] [chat-bar toggle] ── */
 .voice-bar{ gap:14px; }
@@ -1087,7 +1089,7 @@ html[data-theme="light"] #leftPanel .menu-foot .menu-hub{ background:#fff; borde
 #leftPanel .menu-list{ flex:none; max-height:none; overflow:visible; }
 #leftPanel .menu-hub{ position:static; max-height:none; overflow:visible; margin:0 12px 6px; animation:hubIn .22s var(--ease) both; }
 #leftPanel .hub-list, #leftPanel .menu-hub .hub-list{ max-height:none; overflow:visible; }
-#leftPanel .menu-foot{ position:sticky; bottom:0; z-index:5; background:#0e0e14; }
+#leftPanel .menu-foot{ position:sticky; bottom:0; z-index:5; background:#0e0e14; margin-top:auto; padding-bottom:calc(16px + env(safe-area-inset-bottom, 0px)); }   /* profile card + Log out always sit at the very bottom, with room below */
 html[data-theme="light"] #leftPanel .menu-foot{ background:#f3f4fb; }
 .hub-chip[hidden]{ display:none; }
 
@@ -1122,3 +1124,82 @@ html[data-theme="light"] #leftPanel .menu-foot{ background:#f3f4fb; }
 /* one-line notice under the composer (replaces the keyboard hints); centred, quiet, visible on phones too */
 .ai-note{ max-width:var(--col); width:100%; margin:0 auto; padding:2px 10px 6px; text-align:center; font-size:12px; line-height:1.4; color:rgba(255,255,255,.42); user-select:none; }
 html[data-theme="light"] .ai-note{ color:var(--muted); }
+
+/* ═══ Bottom chat bar — two modes ═══
+   Voice mode  : only [mic] [keyboard] side by side (the text bar is hidden)
+   Text mode   : [ + ] [ text … ] [ ✕ keyboard ] [ mic ] [ send ]
+   Flat and quiet (no glow rings), like ChatGPT / Gemini. */
+.dock{ --bar-btn:#e9e9f1; }
+.voice-bar{ display:flex; align-items:center; justify-content:center; gap:14px; padding:12px 0 6px; background:none; backdrop-filter:none; }
+.voice-bar .voice-bar-spacer:first-child{ display:none; }
+.voice-bar #kbdSlot{ width:auto; height:auto; }
+.voice-bar:has(+ .composer-shell:not(.collapsed)){ display:none; }          /* text mode: the voice buttons live inside the bar instead */
+.composer-shell.collapsed{ display:none; }                                    /* voice mode: the text bar is hidden completely */
+.hero-mic, .voice-bar .kbd-toggle{
+  width:52px; height:52px; border-radius:50%; font-size:0; display:flex; align-items:center; justify-content:center;
+  background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.12); color:var(--bar-btn);
+  box-shadow:none; animation:none; transition:background .18s, border-color .18s, transform .14s;
+}
+.hero-mic:hover, .voice-bar .kbd-toggle:hover{ background:rgba(255,255,255,.12); border-color:rgba(255,255,255,.22); transform:none; }
+.hero-mic:active, .voice-bar .kbd-toggle:active{ transform:scale(.94); }
+.hero-mic.listening{ background:rgba(16,185,129,.18); border-color:rgba(16,185,129,.7); color:#34d399; animation:none; box-shadow:none; }
+.hero-mic.speaking{ opacity:.5; animation:none; box-shadow:none; }
+.kbd-toggle .ic-close{ display:none; }
+.kbd-toggle.active .ic-kbd{ display:none; }
+.kbd-toggle.active .ic-close{ display:block; }
+
+.input-pill{ gap:10px; padding:14px 16px; min-height:80px; box-shadow:0 18px 45px rgba(0,0,0,.45); border-radius:34px; border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.06); align-items:center; }
+.input-pill:focus-within, body.mode-work .input-pill:focus-within, html[data-accent] .input-pill:focus-within{ border-color:rgba(var(--acc-rgb,124,58,237),.6); box-shadow:0 0 15px var(--accent-glow, rgba(124,58,237,.35)); background:rgba(255,255,255,.075); }
+.input-pill .icon-btn{ width:46px; height:46px; border-radius:50%; background:rgba(255,255,255,.07); border:0; color:var(--bar-btn); display:grid; place-items:center; flex:none; }
+.input-pill .icon-btn:hover{ background:rgba(255,255,255,.14); }
+.input-pill .pill-mic{ background:transparent; }
+.input-pill .pill-mic.listening{ background:rgba(16,185,129,.2); color:#34d399; }
+.input-pill .kbd-toggle{ width:46px; height:46px; background:transparent; border:0; color:var(--bar-btn); box-shadow:none; }
+.input-pill .kbd-toggle:hover{ background:rgba(255,255,255,.12); }
+.input-pill .kbd-toggle.active{ background:transparent; border:0; color:var(--bar-btn); }
+textarea.ta{ padding:10px 6px; min-height:48px; font-size:15.5px; line-height:1.45; }
+/* Send: always visible, always green — also when the box is empty */
+#send.send{ width:52px; height:52px; flex:none; border-radius:50%; border:0; background:linear-gradient(135deg, var(--g1,#6b46ff), var(--g2,#2f7bff)); color:#fff; box-shadow:0 0 15px var(--accent-glow, rgba(124,58,237,.4)); opacity:1; display:grid; place-items:center; filter:none; }
+#send.send:hover{ background:linear-gradient(135deg, var(--g1,#6b46ff), var(--g2,#2f7bff)); filter:brightness(1.12); box-shadow:0 0 22px var(--accent-glow, rgba(124,58,237,.5)); }
+#send.send:active{ transform:scale(.93); }
+#send.send[disabled]{ opacity:.55; }
+html[data-theme="light"] .dock{ --bar-btn:#23263f; }
+html[data-theme="light"] :is(.hero-mic, .voice-bar .kbd-toggle){ background:rgba(24,26,58,.06); border-color:rgba(24,26,58,.16); box-shadow:none; }
+html[data-theme="light"] .input-pill .icon-btn{ background:rgba(24,26,58,.07); }
+
+/* ═══ Accent glow theme — one set of variables drives everything ═══
+   The Violet / Emerald / Neon Blue / Auto picker sets html[data-accent]; body then carries --acc-rgb, --g1, --g2 (see above).
+   --accent-color = the solid colour, --accent-glow = the soft neon aura. Auto = violet in Companion, emerald inside a project. */
+html body{ --accent-color:rgb(var(--acc-rgb,124,58,237)); --accent-glow:rgba(var(--acc-rgb,124,58,237),.45); }
+html[data-accent] .bubble.me{ background:linear-gradient(135deg, var(--g1), var(--g2)); box-shadow:0 0 15px var(--accent-glow); }
+html[data-theme="light"] .bubble.me{ box-shadow:0 0 15px var(--accent-glow); }
+.seg-btn.on, html[data-accent] .seg-btn.on{ background:linear-gradient(135deg, var(--g1,#6b46ff), var(--g2,#2f7bff)); box-shadow:0 0 15px var(--accent-glow); }
+.sw.on{ border-color:var(--accent-color); background:rgba(var(--acc-rgb,124,58,237),.14); box-shadow:0 0 15px var(--accent-glow); }
+.plan-btn.primary, .feed.selecting .bubble.selected::before{ background:linear-gradient(135deg, var(--g1,#6b46ff), var(--g2,#2f7bff)); box-shadow:0 0 15px var(--accent-glow); }
+.mode-badge, .mode-badge.work, html[data-theme="light"] .mode-badge, html[data-theme="light"] .mode-badge.work{
+  color:var(--accent); border-color:rgba(var(--acc-rgb,124,58,237),.55); background:rgba(var(--acc-rgb,124,58,237),.14); box-shadow:0 0 15px var(--accent-glow); }
+html[data-theme="light"] .mode-badge, html[data-theme="light"] .mode-badge.work{ color:var(--accent-2, var(--accent-color)); }
+.kbd-toggle.active, .input-pill .kbd-toggle.active{ color:var(--accent); }
+.hero-mic:hover, .voice-bar .kbd-toggle:hover{ border-color:rgba(var(--acc-rgb,124,58,237),.55); box-shadow:0 0 15px var(--accent-glow); }
+.input-pill .attach-plus:hover, .input-pill .pill-mic:hover{ color:var(--accent); background:rgba(var(--acc-rgb,124,58,237),.16); }
+.status-dot.idle, .dot{ box-shadow:0 0 8px var(--accent-glow); }
+
+/* ═══ Open / close animation of the chat bar (hardware-accelerated: only transform + opacity move) ═══ */
+:root{ --spring:cubic-bezier(0.16, 1, 0.3, 1); }
+.composer-shell{ will-change:transform, opacity; transform-origin:50% 100%; }
+.composer-shell:not(.collapsed):not(.closing){ animation:barIn .35s var(--spring) both; }
+.composer-shell.closing{ animation:barOut .28s var(--spring) both; pointer-events:none; }
+@keyframes barIn { from{ opacity:0; transform:translateY(8px) scale(.97); } to{ opacity:1; transform:translateY(0) scale(1); } }
+@keyframes barOut{ from{ opacity:1; transform:translateY(0) scale(1); }   to{ opacity:0; transform:translateY(8px) scale(.97); } }
+/* the mic + keyboard pair fades back in when voice mode returns */
+.voice-bar{ animation:voiceIn .35s var(--spring) both; }
+@keyframes voiceIn{ from{ opacity:0; transform:translateY(8px) scale(.97); } to{ opacity:1; transform:translateY(0) scale(1); } }
+/* icons morph: the old glyph is replaced by the new one with a fade + scale (+ a quarter turn for ✕) */
+.kbd-toggle:not(.active) .ic-kbd, .hero-mic .ic-mic, .pill-mic svg, .attach-plus svg{ animation:icoIn .35s var(--spring) both; }
+.kbd-toggle.active .ic-close{ animation:icoCloseIn .35s var(--spring) both; }
+@keyframes icoIn{ from{ opacity:0; transform:scale(.55); } to{ opacity:1; transform:scale(1); } }
+@keyframes icoCloseIn{ from{ opacity:0; transform:scale(.55) rotate(-90deg); } to{ opacity:1; transform:scale(1) rotate(0); } }
+.hero-mic, .voice-bar .kbd-toggle, .input-pill .icon-btn, .input-pill .kbd-toggle, #send.send{ transition:transform .35s var(--spring), opacity .35s var(--spring), background-color .2s, border-color .2s, box-shadow .25s; }
+@media (prefers-reduced-motion: reduce){
+  .composer-shell, .voice-bar, .kbd-toggle svg, .hero-mic svg, .pill-mic svg, .attach-plus svg{ animation-duration:.01s !important; }
+}

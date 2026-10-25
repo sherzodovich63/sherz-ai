@@ -2,7 +2,7 @@
 // SHERZ desktop shell (Electron). It shows the SAME web app as the website, from the bundled folder `www`, under its own origin app://sherz.
 // Adds: tray / menu-bar icon, a global hotkey that opens SHERZ from anywhere, system notifications, downloads straight to the Downloads
 // folder, single instance, sherz:// links (Google sign-in comes back this way), start-with-computer, and auto-update when a release feed is configured.
-const { app, BrowserWindow, Tray, Menu, Notification, globalShortcut, ipcMain, nativeImage, protocol, net, session, shell, screen } = require('electron');
+const { app, BrowserWindow, Tray, Menu, Notification, dialog, globalShortcut, ipcMain, nativeImage, protocol, net, session, shell, screen } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
@@ -15,6 +15,10 @@ const WWW = app.isPackaged ? path.join(process.resourcesPath, 'www') : path.reso
 const DEFAULTS = { hotkey: 'CommandOrControl+Shift+Space', closeToTray: true, launchAtLogin: false, bounds: null };
 
 protocol.registerSchemesAsPrivileged([{ scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } }]);
+
+const DEBUG = process.env.SHERZ_DEBUG === '1' || process.argv.includes('--sherz-debug');
+const seenLogs = new Set();
+function logOnce(msg) { if (seenLogs.has(msg) || seenLogs.size > 200) return; seenLogs.add(msg); console.warn('[sherz] ' + msg); }
 
 // ───────── settings (a small JSON file in the user-data folder) ─────────
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
@@ -45,9 +49,29 @@ function createWindow() {
   const b = settings.bounds && boundsOk(settings.bounds) ? settings.bounds : null;
   win = new BrowserWindow({
     width: b?.width || 1100, height: b?.height || 780, x: b?.x, y: b?.y, minWidth: 380, minHeight: 520,
-    backgroundColor: '#070709', title: 'SHERZ', show: !TEST ? false : true, autoHideMenuBar: true,
+    backgroundColor: '#070709', title: 'SHERZ', show: !TEST ? false : true, autoHideMenuBar: true, icon: iconPath(),
+    // no separate title bar (no tiny icon / "SHERZ" text): the app's own header is the top of the window; Windows/Linux keep the real minimise / maximise / close buttons drawn over it, macOS keeps its traffic lights
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
+    ...(process.platform === 'darwin' ? {} : { titleBarOverlay: { color: '#070709', symbolColor: '#d8d8e4', height: 44 } }),
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: true },
   });
+  watchPage(win.webContents);
+  win.on('page-title-updated', (e) => e.preventDefault());                       // the window is always called just "SHERZ", whatever the page's <title> says
+  // the header becomes the drag handle; its buttons stay clickable and leave room for the window buttons on the right (or the traffic lights on a Mac)
+  const FRAME_CSS = `.topbar{-webkit-app-region:drag;user-select:none}
+.topbar button,.topbar a,.topbar input,.topbar select,.topbar [role=button],.topbar [data-lang-pref]{-webkit-app-region:no-drag}
+.topbar{box-sizing:border-box;${process.platform === 'darwin' ? 'padding-left:max(84px,env(titlebar-area-x,0px))' : 'padding-right:calc(100vw - env(titlebar-area-width,100vw) + 8px)'}}
+html,body{height:100%;margin:0}
+/* compact header: 44 px, same height as the window buttons */
+.topbar{height:44px!important;padding-top:0!important}
+.topbar-inner{height:44px!important;padding:0 12px!important;box-sizing:border-box!important;gap:8px!important}
+.topbar .brand{gap:8px!important}
+.topbar .brand-name{font-size:13px!important;letter-spacing:.28em!important}
+.topbar .mode-badge{height:26px!important;min-height:0!important;padding:0 10px 0 8px!important;font-size:12.5px!important}
+.topbar .top-actions{gap:6px!important}
+.topbar .btn-ghost,.topbar .status-pill{height:28px!important;min-height:0!important;padding:0 10px!important;font-size:12.5px!important;line-height:1!important;display:inline-flex;align-items:center;gap:6px}
+.topbar .btn-ghost svg{width:15px!important;height:15px!important}`;
+  win.webContents.on('did-finish-load', () => { win.webContents.insertCSS(FRAME_CSS).catch(() => {}); });
   win.once('ready-to-show', () => { if (!process.argv.includes('--hidden')) win.show(); });
   win.loadURL(DEV_URL || `${ORIGIN}/index.html`);
   win.on('close', (e) => {
@@ -59,6 +83,25 @@ function createWindow() {
   win.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: 'deny' }; });
   win.webContents.on('will-navigate', (e, url) => { if (!DEV_URL && !url.startsWith(ORIGIN + '/')) { e.preventDefault(); openExternal(url); } });
 }
+function iconPath() { const p = path.join(__dirname, '../build/icon.png'); return fs.existsSync(p) ? p : undefined; }   // PNG, 256×256 or bigger (see desktop/build/)
+// Problems the page has are printed in this terminal: failed loads, blocked requests (CORS), script errors. SHERZ_DEBUG=1 also opens the developer tools.
+function watchPage(wc) {
+  wc.on('did-fail-load', (_e, code, desc, url, isMain) => { if (isMain || DEBUG) logOnce(`page load failed (${code} ${desc}) ${url}`); });
+  wc.on('render-process-gone', (_e, d) => console.error('[sherz] page process gone:', d && d.reason));
+  wc.on('console-message', (...a) => {
+    const d = a[0] && typeof a[0] === 'object' && 'message' in a[0] ? a[0] : { level: a[1], message: a[2], sourceId: a[4], lineNumber: a[3] };
+    const lvl = typeof d.level === 'string' ? d.level : ['verbose', 'info', 'warning', 'error'][d.level] || 'info';
+    if (lvl === 'error' || (DEBUG && lvl === 'warning')) logOnce(`page ${lvl}: ${String(d.message).slice(0, 300)}${d.sourceId ? '  (' + String(d.sourceId).split('/').pop() + ':' + d.lineNumber + ')' : ''}`);
+  });
+  if (DEBUG) wc.once('did-finish-load', () => wc.openDevTools({ mode: 'detach' }));
+  // a few seconds after load: did the SHERZ chat page actually start? (an empty <div id="app"> means public/index.html is not the SHERZ page)
+  wc.on('did-finish-load', () => setTimeout(async () => {
+    try {
+      const r = await wc.executeJavaScript(`({ log: !!document.getElementById('log'), box: !!document.getElementById('text'), app: !!document.getElementById('app'), kb: Math.round(document.documentElement.outerHTML.length / 1024) })`);
+      if (!r.log || !r.box) logOnce(`the SHERZ chat page did not start: no message list / chat box in the page (${r.kb} KB of HTML${r.app ? ', it only has an empty <div id="app">' : ''}). Check apps/www/index.html — it must be the full SHERZ index.html — and the "page error" lines above.`);
+    } catch {}
+  }, 4000));
+}
 function showWindow() { if (!win) createWindow(); if (win.isMinimized()) win.restore(); win.show(); win.focus(); }
 function toggleWindow() { if (win && win.isVisible() && win.isFocused()) win.hide(); else { showWindow(); focusComposer(); } }
 function focusComposer() { if (win && rendererReady) win.webContents.send('native:focus-composer'); else if (win) win.webContents.once('did-finish-load', () => win && win.webContents.send('native:focus-composer')); }
@@ -68,6 +111,7 @@ function openExternal(url) { try { const u = new URL(url); if (u.protocol === 'h
 function trayImage() {
   const p = path.join(__dirname, '../build', process.platform === 'darwin' ? 'trayTemplate.png' : 'tray.png');
   let img = fs.existsSync(p) ? nativeImage.createFromPath(p) : nativeImage.createEmpty();
+  if (img.isEmpty() && iconPath()) img = nativeImage.createFromPath(iconPath()).resize({ width: 32, height: 32 });
   if (process.platform === 'darwin') img.setTemplateImage(true);
   return img;
 }
@@ -79,6 +123,7 @@ function buildTrayMenu() {
     { label: t('tray', lang), type: 'checkbox', checked: !!settings.closeToTray, click: (i) => { settings.closeToTray = i.checked; saveSettings(); } },
     { label: t('login', lang), type: 'checkbox', checked: !!settings.launchAtLogin, click: (i) => setLaunchAtLogin(i.checked) },
     { type: 'separator' },
+    ...(app.isPackaged ? [{ label: t('upd', lang), click: checkUpdatesNow }] : []),
     { label: t('quit', lang), click: () => { quitting = true; app.quit(); } },
   ]);
 }
@@ -112,6 +157,7 @@ function uniquePath(dir, name) {
 }
 function setupSession() {
   const ses = session.defaultSession;
+  ses.webRequest.onErrorOccurred((d) => { if (d.error && !/ERR_ABORTED/.test(d.error)) logOnce(`request failed: ${d.error}  ${String(d.url).slice(0, 160)}   ← "ERR_FAILED" on a backend URL usually means the server's CORS list does not include app://sherz`); });
   const mine = (wc) => { try { return DEV_URL ? true : wc.getURL().startsWith(ORIGIN + '/'); } catch { return false; } };
   ses.setPermissionRequestHandler((wc, perm, cb) => cb(mine(wc) && ['media', 'notifications', 'clipboard-sanitized-write', 'fullscreen'].includes(perm)));
   ses.setPermissionCheckHandler((wc, perm) => mine(wc || { getURL: () => '' }) && ['media', 'notifications', 'clipboard-sanitized-write', 'fullscreen'].includes(perm));
@@ -127,13 +173,14 @@ function setupSession() {
   if (process.platform === 'darwin') { try { require('electron').systemPreferences.askForMediaAccess('microphone'); } catch {} }
 }
 function setupProtocol() {
-  protocol.handle(SCHEME, (req) => {
+  protocol.handle(SCHEME, async (req) => {
     const u = new URL(req.url);
     if (u.host !== HOST) return new Response('not found', { status: 404 });
     let rel = decodeURIComponent(u.pathname); if (rel === '/' || rel === '') rel = '/index.html';
     const file = path.normalize(path.join(WWW, rel));
     if (file !== WWW && !file.startsWith(WWW + path.sep)) return new Response('forbidden', { status: 403 });   // no ../ escapes
-    return net.fetch(pathToFileURL(file).toString());
+    if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) { logOnce('missing file in the app bundle: ' + rel + ' (looked in ' + WWW + ')'); return new Response('not found', { status: 404 }); }
+    try { return await net.fetch(pathToFileURL(file).toString()); } catch (e) { logOnce('could not read ' + rel + ': ' + e.message); return new Response('error', { status: 500 }); }
   });
 }
 
@@ -160,13 +207,27 @@ function setupIpc() {
 }
 
 // ───────── updates (only for installed builds that have a release feed) ─────────
+let updater = null, manualCheck = false;
 function setupUpdates() {
   if (!app.isPackaged || process.env.SHERZ_NO_UPDATE === '1') return;
-  try { const { autoUpdater } = require('electron-updater'); autoUpdater.on('error', (e) => console.warn('[update]', e.message)); autoUpdater.checkForUpdatesAndNotify().catch(() => {}); }
-  catch (e) { console.warn('[update] updater unavailable:', e.message); }
+  try {
+    ({ autoUpdater: updater } = require('electron-updater'));
+    updater.autoDownload = true; updater.autoInstallOnAppQuit = true;           // downloads in the background; installs when SHERZ is closed (or right away if you press Restart)
+    updater.on('error', (e) => { console.warn('[update]', e.message); if (manualCheck) { manualCheck = false; dialog.showMessageBox({ type: 'info', message: t('updFail', lang) }); } });
+    updater.on('update-not-available', () => { if (manualCheck) { manualCheck = false; dialog.showMessageBox({ type: 'info', message: t('updNone', lang, app.getVersion()) }); } });
+    updater.on('update-downloaded', (info) => {
+      manualCheck = false;
+      dialog.showMessageBox(win && !win.isDestroyed() ? win : undefined, { type: 'info', buttons: [t('updNow', lang), t('updLater', lang)], defaultId: 0, cancelId: 1, message: t('updReady', lang, info.version), detail: t('updText', lang) })
+        .then((r) => { if (r.response === 0) { quitting = true; updater.quitAndInstall(); } });
+    });
+    const check = () => updater.checkForUpdates().catch(() => {});
+    check(); setInterval(check, 4 * 60 * 60 * 1000);                              // on start, then every 4 hours
+  } catch (e) { console.warn('[update] updater unavailable:', e.message); }
 }
+function checkUpdatesNow() { if (!updater) { dialog.showMessageBox({ type: 'info', message: t('updNone', lang, app.getVersion()) }); return; } manualCheck = true; updater.checkForUpdates().catch(() => {}); }
 
 app.whenReady().then(() => {
+  try { app.setAppUserModelId('ai.sherz.app'); } catch {}                         // Windows: groups the taskbar icon with the app's own icon
   loadSettings(); setupProtocol(); setupSession(); setupIpc();
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     ...(process.platform === 'darwin' ? [{ role: 'appMenu' }] : []),

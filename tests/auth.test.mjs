@@ -99,3 +99,25 @@ test('purgeStaleGuests deletes only old guests', async () => {
   assert.equal(r.purged, 1);
   assert.deepEqual(p.db.users.map((u) => u.id).sort(), ['guest_new', 'real']);
 });
+
+// ── session persistence: refresh + config-error handling ──
+import jwt from 'jsonwebtoken';
+import { verifyJwtWithGrace, authRequired } from '../middleware/auth.js';
+
+const SECRET = 'x'.repeat(40);
+test('verifyJwtWithGrace accepts a token expired < 30 days, rejects older / forged', () => {
+  process.env.JWT_SECRET = SECRET;
+  const now = Math.floor(Date.now() / 1000);
+  const mk = (age, secret = SECRET) => jwt.sign({ id: 'u1', iat: now - age - 100, exp: now - age }, secret);
+  assert.equal(verifyJwtWithGrace(mk(2 * 86400))?.id, 'u1');
+  assert.equal(verifyJwtWithGrace(mk(40 * 86400)), null);
+  assert.equal(verifyJwtWithGrace(mk(10, 'y'.repeat(40))), null);
+});
+
+test('authRequired answers 500 (not 403) when JWT_SECRET is missing, so clients keep their login', () => {
+  const saved = process.env.JWT_SECRET; delete process.env.JWT_SECRET;
+  let code; const res = { status: (c) => { code = c; return { json: () => {} }; } };
+  authRequired({ headers: { authorization: 'Bearer abc.def.ghi' } }, res, () => {});
+  process.env.JWT_SECRET = saved;
+  assert.equal(code, 500);
+});

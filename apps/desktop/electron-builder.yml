@@ -10,7 +10,15 @@ protocols: [ { name: SHERZ, schemes: [ sherz ] } ]    # sherz://  → used to co
 win:
   target: [ { target: nsis, arch: [ x64 ] } ]
   icon: build/icon.png
-nsis: { oneClick: false, perMachine: false, allowToChangeInstallationDirectory: true, createDesktopShortcut: true }
+  artifactName: SHERZ-Setup-${version}.${ext}        # → dist/SHERZ-Setup-0.1.0.exe
+nsis:
+  oneClick: false
+  perMachine: false                                  # installs for the current user only: no admin prompt, and updates install silently
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: SHERZ
+  deleteAppDataOnUninstall: false                    # uninstalling keeps your settings
 mac:
   category: public.app-category.productivity
   target: [ { target: dmg, arch: [ x64, arm64 ] } ]
@@ -24,5 +32,9 @@ linux:
   target: [ AppImage ]
   category: Utility
   icon: build/icon.png
-# Auto-update: set a real release location before publishing (GitHub Releases works out of the box with a token):
-# publish: { provider: github, owner: YOUR_GITHUB_USER, repo: sherz-ai }
+# Auto-update: the installed app looks at the newest GitHub Release of this repository (needs a PUBLIC repo or release repo; see apps/README).
+publish:
+  provider: github
+  owner: sherzodovich63
+  repo: sherz-ai
+  releaseType: release

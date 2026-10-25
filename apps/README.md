@@ -27,6 +27,29 @@ npm run ios:open          # Xcode (Mac only)
 Point at another backend: `SHERZ_API_URL=https://my-backend npm run sync` (or `node scripts/sync-web.mjs --api https://my-backend`).
 Every web change needs a new `npm run sync` (the `*:build` / `*:open` scripts do it for you).
 
+## Your own icon
+Put your logo at `public/sherz-icon.svg` (or any `.png`), then:
+```
+cd apps
+npm run icons                       # uses ../public/sherz-icon.svg
+npm run icons -- C:\path\logo.png   # or any other picture
+```
+It writes `desktop/build/icon.png` (window, taskbar, installer), the tray icons and the Android/iOS icon + splash sources. The icon must be a **PNG, 256×256 or larger**
+(an `.svg` or a file without an extension is not accepted by Electron — that is why `copy public\sherz-icon …` failed: the file there is `sherz-icon.svg`, and the target folder is `apps\desktop\build`, not `apps\build`).
+`electron-builder.yml` already points at `build/icon.png`; nothing else to configure.
+
+## If the window is black or something does not work
+```
+npm run desktop:debug          # opens the developer tools and prints every problem in the terminal
+npm run desktop:local:debug    # same, but talks to a backend running on this computer (http://localhost:3000)
+```
+What the lines mean:
+* `request failed: net::ERR_FAILED  https://…/api/…` — the **backend refused the app** (CORS). Deploy the new `server.js` line that trusts `app://sherz`
+  (or add `app://sherz,https://localhost,capacitor://localhost` to `CORS_ORIGIN`), or use `desktop:local`.
+* `missing file in the app bundle: /xyz` — the page asked for a file that is not in `public/`. Harmless unless it is a script or stylesheet.
+* `page error: …` — a script of the page failed; send that line.
+After changing anything in `public/`, `npm run desktop:dev` copies it again by itself.
+
 ## Server changes the apps need (already in this patch)
 * CORS trusts the app origins `app://sherz`, `https://localhost`, `capacitor://localhost` (`lib/nativeAuth.js`, one line in `server.js`).
 * Google refuses sign-in inside embedded webviews, so the apps open the system browser on `/api/auth/google?native=1`.

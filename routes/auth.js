@@ -15,7 +15,7 @@ import { Router }  from 'express';
 import bcrypt      from 'bcryptjs';
 import { z }       from 'zod';
 import { OAuth2Client } from 'google-auth-library';
-import { signJwt, authRequired, optionalAuth } from '../middleware/auth.js';
+import { signJwt, authRequired, optionalAuth, verifyJwtWithGrace } from '../middleware/auth.js';
 import { googleLogin } from '../lib/googleLogin.js';
 import { NATIVE_STATE, isNativeState, nativeRedirectUrl, nativeHandoffHtml } from '../lib/nativeAuth.js'; // desktop / mobile apps
 import { resolveRedirect, resolveClientId, maskId, buildAuthUrl, frontendBase } from '../lib/googleOAuthConfig.js'; // ✅ one source of truth for the redirect_uri
@@ -199,6 +199,34 @@ export function authRouter(prisma) {
     } catch (err) {
       console.error('[auth/me] error:', err);
       return res.status(500).json({ ok: false, error: 'Profil yuklanmadi' });
+    }
+  });
+
+  // ──────────────────────────────────────────────────────────────
+  // POST /api/auth/refresh
+  // Header: Authorization: Bearer <account token — may be expired by up to 30 days>
+  // Silent session renewal on app start: returns a fresh 30-day token for a real account, so
+  // a returning user stays signed in instead of falling back to a Guest. Guest tokens and
+  // unknown users are refused.
+  // ──────────────────────────────────────────────────────────────
+  router.post('/refresh', async (req, res) => {
+    try {
+      const h = req.headers['authorization'] || '';
+      if (!h.startsWith('Bearer ')) return res.status(401).json({ ok: false, error: 'Token kerak' });
+      const decoded = verifyJwtWithGrace(h.slice(7));
+      if (!decoded || !decoded.id || String(decoded.id).startsWith('guest_')) {
+        return res.status(403).json({ ok: false, error: 'Token yaroqsiz' });
+      }
+      const user = await prisma.user.findUnique({ where: { id: decoded.id } });
+      if (!user) return res.status(404).json({ ok: false, error: 'Foydalanuvchi topilmadi' });
+      const token = signJwt(buildJwtPayload(user), '30d');
+      return res.json({ ok: true, token, user: safeUser(user) });
+    } catch (err) {
+      if (String(err?.message || '').startsWith('JWT_SECRET')) {
+        return res.status(500).json({ ok: false, error: 'Server auth is not configured' });
+      }
+      console.error('[auth/refresh] error:', err);
+      return res.status(500).json({ ok: false, error: 'Sessiyani yangilab bo‘lmadi' });
     }
   });
 
