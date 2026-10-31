@@ -12,6 +12,10 @@ import { buildSoftPresenceMessage } from './boundary/softPresence.js';
 import { buildPermissionMessage } from './boundary/permission.js';
 import { logBoundaryDecision } from './boundary/boundaryLogger.js';
 
+// Web Push hook: server.js sets it (setPushNotifier) when VAPID keys exist; with none set, nothing happens.
+let pushNotifier = null;
+export function setPushNotifier(fn) { pushNotifier = typeof fn === 'function' ? fn : null; }
+
 function randInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
@@ -304,6 +308,9 @@ try {
     }
 
   // ✅ Loop fix: in-memory record of this send, independent of any DB write
+  // 3) Web Push — reaches the phone / desktop when the app is closed (the service worker skips it if the app is open in front)
+  if (pushNotifier) { try { Promise.resolve(pushNotifier({ userId, text, meta: typeof meta === 'undefined' ? undefined : meta })).catch(() => {}); } catch { /* never blocks delivery */ } }
+
   rememberProactiveSend({ userId, text, intent: guardIntent });
 
   return msgRow;

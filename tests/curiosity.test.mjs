@@ -14,6 +14,14 @@ test('persona: has curiosity + own voice, with the safety limits that keep it fr
   assert.match(t, /Always reply in the language of the user's latest message/);
   assert.match(t, /Independent stance/);                       // earlier sections are still there
 });
+test('persona: a reply stays on the topic the user named — no unrequested trivia, no changing the subject', () => {
+  const t = CORE_PERSONA_DIRECTIVE;
+  assert.match(t, /Stay on the user's topic/);
+  assert.match(t, /never add facts, places, statistics or "did you know" trivia they did not ask for/);
+  assert.match(t, /tangent is only welcome when they invite it/);
+  assert.match(t, /Never fill the gap with something of your own/);
+  assert.match(t, /never invent facts to sound interesting/);   // the older rule is still there
+});
 test('intent: stress or a guarded relationship ALWAYS gets support, never a curious ping', () => {
   for (let r = 0; r < 1; r += 0.1) {
     assert.equal(decideIntent({ emotion: { stressFlag: true }, random: r }), 'support');

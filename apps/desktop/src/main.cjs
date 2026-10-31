@@ -83,7 +83,7 @@ html,body{height:100%;margin:0}
   win.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: 'deny' }; });
   win.webContents.on('will-navigate', (e, url) => { if (!DEV_URL && !url.startsWith(ORIGIN + '/')) { e.preventDefault(); openExternal(url); } });
 }
-function iconPath() { const p = path.join(__dirname, '../build/icon.png'); return fs.existsSync(p) ? p : undefined; }   // PNG, 256×256 or bigger (see desktop/build/)
+function iconPath() { const ico = path.join(__dirname, '../build/icon.ico'); if (process.platform === 'win32' && fs.existsSync(ico)) return ico; const p = path.join(__dirname, '../build/icon.png'); return fs.existsSync(p) ? p : undefined; }   // Windows: the multi-size .ico (npm run web-icons) keeps the taskbar icon sharp   // PNG, 256×256 or bigger (see desktop/build/)
 // Problems the page has are printed in this terminal: failed loads, blocked requests (CORS), script errors. SHERZ_DEBUG=1 also opens the developer tools.
 function watchPage(wc) {
   wc.on('did-fail-load', (_e, code, desc, url, isMain) => { if (isMain || DEBUG) logOnce(`page load failed (${code} ${desc}) ${url}`); });

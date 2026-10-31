@@ -2,9 +2,16 @@
 <html lang="uz">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>SHERZ</title>
   <meta name="theme-color" content="#070709" id="metaThemeColor">
+  <meta name="apple-mobile-web-app-title" content="SHERZ" />
+  <meta name="application-name" content="SHERZ AI" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="/manifest.webmanifest" />
   <script>
   /* Apply saved theme/accent before first paint. Default = dark (the original look). */
   (function(){
@@ -19,6 +26,8 @@
   })();
   </script>
   <link rel="icon" href="/sherz-icon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
+  <link rel="icon" href="/favicon-16.png" type="image/png" sizes="16x16">
   <style>
   @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
 
@@ -1408,11 +1417,25 @@ html.platform-ios body {
           <div class="brain-card" id="shareCard" role="group" aria-label="Shared learning">
             <div class="bc-label">Shared learning</div>
             <div class="share-row">
-              <div class="share-text"><b>Learn from other professionals</b><small>Learn from verified solutions across all work spaces. When you confirm that an answer worked, only the anonymized method is shared — never your name, personal data, or private files. Off by default.</small></div>
+              <div class="share-text"><span class="share-title"><b>Learn from other professionals</b><button id="shareInfoBtn" class="info-btn" type="button" aria-label="What is this?" aria-expanded="false" aria-controls="shareInfo">?</button></span></div>
               <button id="shareToggle" class="share-switch" type="button" role="switch" aria-checked="false" aria-label="Learn from other professionals" disabled><span class="share-knob"></span></button>
             </div>
+            <div id="shareInfo" class="info-pop" role="tooltip" hidden>Learn from verified solutions across all work spaces. When you confirm that an answer worked, only the anonymized method is shared — never your name, personal data, or private files. Off by default.</div>
             <div id="shareNote" class="share-note" role="status" aria-live="polite" hidden></div>
             <button id="shareWithdraw" class="share-link" type="button" hidden>Remove my contributions</button>
+          </div>
+
+          <div class="brain-card" id="memCard" role="group" aria-label="What SHERZ remembers">
+            <button id="memHead" class="mem-head" type="button" aria-expanded="true" aria-controls="memBody">
+              <span class="bc-label">What SHERZ remembers</span>
+              <span id="memCount" class="mem-count" hidden></span>
+              <svg class="mem-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div id="memBody" class="mem-bodywrap">
+              <small class="mem-intro">Things SHERZ has learned about you. Change or remove anything — it is yours.</small>
+              <input id="memSearch" class="mem-search" type="search" placeholder="Search memory" aria-label="Search memory" autocomplete="off" hidden>
+              <div id="memList" class="mem-list" aria-live="polite"></div>
+            </div>
           </div>
         </div>
       </aside>
@@ -1778,6 +1801,192 @@ html.platform-ios body {
       load();
     })();
 
+    // ── Shared learning: the "?" next to the title shows the full explanation (hover, keyboard focus, or tap) ──
+    (function sharedInfoUI(){
+      const btn = $('shareInfoBtn'), pop = $('shareInfo'); if (!btn || !pop) return;
+      let pinned = false;                                                     // opened by a tap/click → stays until closed
+      const card = $('shareCard');
+      const show = (on) => { pop.hidden = !on; btn.setAttribute('aria-expanded', on ? 'true' : 'false'); if (card) card.classList.toggle('info-open', !!on); if (!on) pinned = false; };   // .info-open lifts this card above the next one so the popup is not painted over
+      const hoverOK = window.matchMedia && matchMedia('(hover:hover)').matches;
+      if (hoverOK){
+        btn.addEventListener('mouseenter', () => show(true));
+        btn.addEventListener('mouseleave', () => { if (!pinned) show(false); });
+      }
+      btn.addEventListener('focus', () => { if (hoverOK) show(true); });
+      btn.addEventListener('blur', () => { if (!pinned) show(false); });
+      btn.addEventListener('click', (e) => { e.stopPropagation(); if (pinned){ show(false); } else { show(true); pinned = true; } });
+      document.addEventListener('click', (e) => { if (!pop.hidden && !pop.contains(e.target) && e.target !== btn) show(false); });
+      document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !pop.hidden){ e.stopPropagation(); show(false); btn.focus(); } }, true);   // capture: Esc closes only the popup, not the whole panel
+    })();
+
+    // ── "What SHERZ remembers": the person can read, correct and delete every remembered item ──
+    (function memoryUI(){
+      const list = $('memList'), count = $('memCount'), head = $('memHead'), bodyWrap = $('memBody'), search = $('memSearch'); if (!list || !head) return;
+      const SEARCH_AT = 8, AUTO_OPEN_MAX = 5, KEY_OPEN = 'sherz_mem_open';
+      let facts = [], loaded = false, query = '';
+      const ls = { get(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }, set(k, v){ try{ localStorage.setItem(k, v); }catch(e){} } };
+      const pretty = (k) => String(k || '').replace(/^[a-z]+[:_]/i, '').replace(/[_:]+/g, ' ').trim() || 'note';
+      const msg = (t) => { list.innerHTML = '<div class="mem-empty">' + esc(t) + '</div>'; };
+      const ICO_EDIT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+      const ICO_DEL = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>';
+      function row(f){
+        return '<div class="mem-row" data-id="' + esc(f.id) + '"><div class="mem-body" role="button" tabindex="0" aria-expanded="false" title="' + esc(f.value) + '"><b>' + esc(pretty(f.key)) + '</b><span>' + esc(f.value) + '</span></div>' +
+          '<div class="mem-actions"><button type="button" class="mem-btn" data-act="edit" aria-label="Edit">' + ICO_EDIT + '</button><button type="button" class="mem-btn" data-act="del" aria-label="Delete">' + ICO_DEL + '</button></div></div>';
+      }
+      // long lists are grouped by kind (taken from the key: "pref:coffee" → Preferences, "person" → People …); anything unknown goes to Other
+      const GROUP_AT = 10;
+      const KINDS = [
+        ['People', /^(person|people|name|family|friend|relative|contact|relationship|partner|pet)/],
+        ['Preferences', /^(pref|preference|like|likes|dislike|favou?rite|taste|food|drink|music|style|interest|hobby)/],
+        ['Habits', /^(habit|routine|schedule|sleep|wake|diet|exercise)/],
+        ['Plans', /^(plan|goal|todo|task|project|event|trip|deadline|idea|dream)/],
+      ];
+      const kindOf = (k) => { const t = String(k || '').trim().toLowerCase(); for (const [label, re] of KINDS) if (re.test(t)) return label; return 'Other'; };
+      function grouped(items){
+        const by = {}; items.forEach((f) => { (by[kindOf(f.key)] = by[kindOf(f.key)] || []).push(f); });
+        const order = KINDS.map((x) => x[0]).concat('Other').filter((l) => by[l] && by[l].length);
+        if (order.length < 2) return items.map(row).join('');
+        return order.map((l) => '<div class="mem-group"><span>' + esc(l) + '</span><i>' + by[l].length + '</i></div>' + by[l].map(row).join('')).join('');
+      }
+      function setOpen(open, remember){
+        head.setAttribute('aria-expanded', open ? 'true' : 'false'); bodyWrap.hidden = !open; $('memCard').classList.toggle('collapsed', !open);
+        if (remember) ls.set(KEY_OPEN, open ? '1' : '0');
+      }
+      function paint(){
+        search.hidden = facts.length < SEARCH_AT; if (search.hidden) query = '';
+        if (!facts.length){ msg('Nothing yet. As we talk, what matters to you shows up here.'); count.hidden = true; return; }
+        count.textContent = String(facts.length); count.hidden = false;
+        const q = query.trim().toLowerCase();
+        const shown = q ? facts.filter((f) => (pretty(f.key) + ' ' + f.value).toLowerCase().includes(q)) : facts;
+        if (!shown.length){ msg('Nothing matches “' + query.trim() + '”.'); return; }
+        list.innerHTML = shown.length >= GROUP_AT ? grouped(shown) : shown.map(row).join('');
+      }
+      async function load(){
+        await authReady;
+        try{
+          const r = await fetchWithAuth(apiUrl('/api/facts/' + encodeURIComponent(GUEST_ID) + '?only=user')); const d = await r.json().catch(() => ({}));
+          if (!r.ok || !d.ok) { if (!loaded) msg('Could not load your memory.'); return; }
+          facts = (d.facts || []).filter((f) => !isSystemFactKey(f.key));
+          if (!loaded){                                                         // first load: a short list opens by itself, a long one starts folded (until the person chooses)
+            const saved = ls.get(KEY_OPEN); setOpen(saved === null ? facts.length <= AUTO_OPEN_MAX : saved === '1', false);
+          }
+          loaded = true; paint();
+        }catch(e){ if (!loaded) msg('Could not load your memory.'); }
+      }
+      const rowOf = (el) => el.closest('.mem-row');
+      const find = (id) => facts.find((f) => String(f.id) === String(id));
+      head.addEventListener('click', () => setOpen(head.getAttribute('aria-expanded') !== 'true', true));
+      search.addEventListener('input', () => { query = search.value; paint(); });
+      function toggleRow(rw){ const on = !rw.classList.contains('open'); rw.classList.toggle('open', on); const b = rw.querySelector('.mem-body'); if (b) b.setAttribute('aria-expanded', on ? 'true' : 'false'); }
+      list.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('mem-body')){ e.preventDefault(); toggleRow(rowOf(e.target)); } });
+      list.addEventListener('click', async (e) => {
+        const bodyEl = e.target.closest('.mem-body'); if (bodyEl && !e.target.closest('button')){ toggleRow(rowOf(bodyEl)); return; }   // tap a row → full text
+        const btn = e.target.closest('button'); if (!btn) return; const rw = rowOf(btn); if (!rw) return; const f = find(rw.dataset.id); if (!f) return;
+        const act = btn.dataset.act;
+        if (act === 'edit'){
+          rw.classList.add('editing');
+          rw.innerHTML = '<textarea class="mem-edit" rows="3" maxlength="2000" aria-label="Edit">' + esc(f.value) + '</textarea><div class="mem-actions mem-actions-row"><button type="button" class="mem-btn txt" data-act="save">Save</button><button type="button" class="mem-btn txt" data-act="cancel">Cancel</button></div>';
+          const ta = rw.querySelector('textarea'); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
+        } else if (act === 'cancel'){ paint();
+        } else if (act === 'save'){
+          const v = rw.querySelector('textarea').value.trim(); if (!v) return; btn.disabled = true;
+          try{
+            const r = await fetchWithAuth(apiUrl('/api/facts/' + encodeURIComponent(f.id)), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: v }) });
+            if (r.ok) f.value = v; else rw.querySelector('textarea').classList.add('bad');
+          }catch(e2){ rw.querySelector('textarea').classList.add('bad'); }
+          if (f.value === v) paint(); else btn.disabled = false;
+        } else if (act === 'del'){                                           // two taps, no pop-up: "Forget this?"
+          rw.querySelector('.mem-actions').innerHTML = '<button type="button" class="mem-btn txt danger" data-act="del-yes">Forget</button><button type="button" class="mem-btn txt" data-act="cancel">Keep</button>';
+        } else if (act === 'del-yes'){
+          btn.disabled = true;
+          try{
+            const r = await fetchWithAuth(apiUrl('/api/facts/' + encodeURIComponent(f.id)), { method: 'DELETE' });
+            if (r.ok){ facts = facts.filter((x) => x !== f); paint(); return; }
+          }catch(e2){}
+          btn.disabled = false; btn.textContent = 'Try again';
+        }
+      });
+      window.__sherzMemRefresh = load;                                       // called after a message is sent: new facts appear without reopening the panel
+      $('btnBrainPanel')?.addEventListener('click', load);
+      load();
+    })();
+
+    (function onboarding(){   // first-run welcome: optional name (saved as a memory) → Companion or Work Space; shown once
+      const FLAG = 'sherz_onboarded';
+      const get = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+      const set = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+      if (get(FLAG)) return;
+      // a brand-new sign-up (token or guest thread only) still gets the welcome; only a real saved thread counts as "already uses SHERZ"
+      let used = false;
+      try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i) || ''; if ((k.startsWith('sherz_conv_') && !k.startsWith('sherz_conv_guest_')) || k === 'sherz_push_n') used = true; } } catch {}
+      if (used) { set(FLAG, '1'); return; }                       // someone who already uses SHERZ never sees the welcome
+      const init = () => {
+      const ov = document.getElementById('obOverlay'); if (!ov) return;
+      const q = (id) => document.getElementById(id), s1 = q('obStep1'), s2 = q('obStep2'), inp = q('obName');
+      const done = () => { set(FLAG, '1'); ov.hidden = true; document.removeEventListener('keydown', onKey, true); };
+      const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(); } };
+      const saveName = () => {
+        const v = inp.value.replace(/\s+/g, ' ').trim().slice(0, 40); if (!v) return;
+        try { fetchWithAuth(apiUrl('/api/facts'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: GUEST_ID, key: 'Name', value: v }) }).then(() => window.__sherzMemRefresh && window.__sherzMemRefresh()).catch(() => {}); } catch {}
+      };
+      const toStep2 = () => { saveName(); s1.hidden = true; s2.hidden = false; q('obCompanion').focus(); };
+      q('obNext').addEventListener('click', toStep2);
+      q('obSkip1').addEventListener('click', () => { inp.value = ''; toStep2(); });
+      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); toStep2(); } });
+      q('obCompanion').addEventListener('click', () => { done(); const m = document.getElementById('msg') || document.querySelector('textarea'); m && m.focus(); });
+      q('obWork').addEventListener('click', () => { done(); const h = document.getElementById('hubCard'); h && h.click(); });
+      q('obSkip2').addEventListener('click', done);
+      setTimeout(() => { if (get(FLAG)) return; ov.hidden = false; document.addEventListener('keydown', onKey, true); inp.focus(); }, 900);
+      };
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+    })();
+    // ── Notifications while the app is closed (Web Push) — fully automatic, no settings switch. SHERZ decides when to reach out (proactive runner);
+    //    this only makes the device reachable. The browser always needs ONE native "Allow notifications?" tap: we ask once, after the person has
+    //    actually chatted a little (never on first load), and never again if they say no. On iPhone only the installed Home Screen app can receive push.
+    (function pushAuto(){
+      if (window.SHERZ_NATIVE || !('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return;
+      const KEY_N = 'sherz_push_n', KEY_ASKED = 'sherz_push_asked', ASK_AFTER = 3;
+      const ls = { get(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }, set(k, v){ try{ localStorage.setItem(k, v); }catch(e){} } };
+      const b64 = (s) => { const p = '='.repeat((4 - s.length % 4) % 4), r = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(r, (c) => c.charCodeAt(0)); };
+      let busy = false;
+      async function ensure(){                                            // permission granted → make sure this device is subscribed and known to the server (idempotent)
+        if (busy || Notification.permission !== 'granted') return; busy = true;
+        try{
+          await authReady; if (!isAuthenticatedUser) return;
+          const st = await (await fetchWithAuth(apiUrl('/api/push/status'))).json().catch(() => ({}));
+          if (!st.ok || !st.available || !st.publicKey) return;           // server has no VAPID keys / table → stay silent
+          const reg = await navigator.serviceWorker.register('/sw.js').then(() => navigator.serviceWorker.ready);
+          const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(st.publicKey) });
+          await fetchWithAuth(apiUrl('/api/push/subscribe'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subscription: sub.toJSON() }) });
+        }catch(e){ console.warn('[push] not started:', e && e.message); }
+        finally{ busy = false; }
+      }
+      // called after each message the person sends: the tap that sent it is the "gesture" the browser requires
+      window.__sherzPushNudge = async function(){
+        try{
+          const n = (parseInt(ls.get(KEY_N) || '0', 10) || 0) + 1; ls.set(KEY_N, String(n));
+          if (Notification.permission === 'granted') return ensure();
+          if (Notification.permission !== 'default' || ls.get(KEY_ASKED) || n < ASK_AFTER) return;
+          if (navigator.userActivation && !navigator.userActivation.isActive) return;      // e.g. a voice turn: wait for a real tap next time
+          await authReady; if (!isAuthenticatedUser) return;
+          const st = await (await fetchWithAuth(apiUrl('/api/push/status'))).json().catch(() => ({}));
+          if (!st.ok || !st.available) return;                              // nothing to ask for yet
+          ls.set(KEY_ASKED, '1');                                           // once only, whatever the answer
+          if ((await Notification.requestPermission()) === 'granted') ensure();
+        }catch(e){}
+      };
+      authReady.then(() => { if (isAuthenticatedUser) ensure(); });         // returning visitors who already allowed: keep the subscription fresh
+      // signing out: this device must stop receiving the previous person's messages
+      $('logoutBtn')?.addEventListener('click', () => {
+        const t = currentToken(); if (!t || Notification.permission !== 'granted') return;
+        navigator.serviceWorker.getRegistration('/sw.js').then(async (reg) => {
+          const sub = reg && await reg.pushManager.getSubscription(); if (!sub) return;
+          fetch(apiUrl('/api/push/unsubscribe'), { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + t }, body: JSON.stringify({ endpoint: sub.endpoint }) }).catch(() => {});
+          sub.unsubscribe().catch(() => {});
+        }).catch(() => {});
+      }, true);
+    })();
+
     $('googleLoginBtn')?.addEventListener('click', () => window.__signInWithGoogle());
     $('logoutBtn')?.addEventListener('click', () => window.__signOut());
 
@@ -1832,7 +2041,12 @@ html.platform-ios body {
     // =========================
     // ✅ PRESENCE / STATUS (AS-IS)
     // =========================
+    var lastMode = 'idle', lastModeAt = Date.now();   // (var: setStatus may run before this line)
     function setStatus(mode){
+      lastMode = mode || 'idle'; lastModeAt = Date.now();
+      // the header orb always follows the status — it used to change only at a few hand-picked places, so an interrupted or failed
+      // voice turn left it on "tap to stop" for good (the wrapper that was meant to link them could never see this function)
+      try { if (window.__orbSetState) window.__orbSetState(lastMode); } catch(e){}
       const textEl = $('statusText');
       const dotEl = $('statusDot');
       if (!textEl || !dotEl) return;
@@ -1865,6 +2079,16 @@ html.platform-ios body {
       if (on) dotEl.classList.add('soft');
       else dotEl.classList.remove('soft');
     }
+    // Safety net: a busy status (thinking / transcribing / replying / speaking) that has not changed for 75 s while no audio is playing is a
+    // stuck turn (a hung request, a stalled audio element …). Everything is reset to idle, so the header can never stay on "Replying" / "tap to stop".
+    setInterval(() => {
+      if (!/^(thinking|transcribing|responding|speaking)$/.test(lastMode)) return;
+      const playing = !!(ttsAudio && !ttsAudio.paused && !ttsAudio.ended);
+      if (playing || Date.now() - lastModeAt < 75000) return;
+      console.warn('[ui] status "' + lastMode + '" did not change for 75 s — resetting to idle');
+      try { if (window.__voiceReset) window.__voiceReset(); } catch(e){}
+      setStatus('idle');
+    }, 3000);
 
     // =========================
     // ✅ NEW: Desktop side panels toggle (UI buzilmaydi)
@@ -2960,6 +3184,7 @@ html.platform-ios body {
       }
       window.__orbAnalyser = null;
       $('heroMic')?.classList.remove('speaking');
+      if (lastMode === 'speaking') setStatus('idle');      // barge-in / stop: the voice is gone, so the header must stop saying "Speaking"
     }
     // ✅ Public API — lets callers (barge-in, mic click, orb click) cleanly
     // interrupt playback without risking a duplicate startListening() call
@@ -3110,12 +3335,14 @@ html.platform-ios body {
         if (!seg || seg.fetched) return;
         seg.fetched = true;
         if (!ttsOn()){ seg.p = Promise.resolve(null); return; }
+        const ac = new AbortController(), killer = setTimeout(() => ac.abort(), 15000);    // a hung voice request must never freeze the reply: after 15 s the sentence is shown as text
         seg.p = fetchWithAuth(apiUrl('/api/tts'), {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ac.signal,
           body: JSON.stringify({ text: seg.text.trim() })
         }).then(r => r.ok ? r.blob() : Promise.reject(new Error('TTS HTTP ' + r.status)))
           .then(b => (b && b.size) ? b : null)
-          .catch(e => { console.warn('[voice-sync] TTS failed for a sentence — showing its text only:', e.message); return null; });
+          .catch(e => { console.warn('[voice-sync] TTS failed for a sentence — showing its text only:', e.message); return null; })
+          .finally(() => clearTimeout(killer));
       };
 
       V.feed = (delta) => {
@@ -3165,7 +3392,12 @@ html.platform-ios body {
         cancelHook = end;
         audio.onended = end;
         audio.onerror = () => { console.warn('[voice-sync] audio error — continuing'); end(); };
-        timer = setInterval(() => { paint(base + seg.text.slice(0, upto())); }, 45);
+        let lastCT = -1, lastMove = performance.now();
+        timer = setInterval(() => {
+          paint(base + seg.text.slice(0, upto()));
+          if (audio.currentTime !== lastCT){ lastCT = audio.currentTime; lastMove = performance.now(); }
+          else if (performance.now() - lastMove > 7000 && !audio.ended){ console.warn('[voice-sync] audio stalled — continuing'); try{ audio.pause(); }catch(e){} end(); }   // never wait forever on a stuck audio element
+        }, 45);
         audio.play().then(() => {
           if (window.__orbSetState) window.__orbSetState('speaking');
           setStatus('speaking');
@@ -3219,6 +3451,8 @@ html.platform-ios body {
       const q = (text||'').trim();
       if (!q && !opts.file) return;
       lastTurnSource = (source === 'voice') ? 'voice' : 'text';
+      if (window.__sherzPushNudge) window.__sherzPushNudge();     // notifications: one polite, one-time ask after a few messages
+      if (window.__sherzMemRefresh){ setTimeout(window.__sherzMemRefresh, 6000); setTimeout(window.__sherzMemRefresh, 16000); }     // memory is extracted in the background a few seconds after the reply
       let wd = null, timedOut = false, streamWrap = null;      // watchdog: never leave the dots spinning forever
 
       try{
@@ -3590,6 +3824,11 @@ html.platform-ios body {
   const NO_SPEECH_MS = 12000;   // nobody spoke at all → drop the recording, go idle (no upload, no reply)
   const MAX_RECORD_MS = 90000;  // hard cap on a single recording
   const MIN_SPEECH_MS = 240;    // less voiced audio than this counts as silence/noise
+  // End-of-speech: once the person has spoken and then stays quiet this long, the recording stops and is sent by itself (no second tap).
+  // Short answers get a slightly longer grace ("hmm… yes"), long ones a normal pause. Tapping stop still works any time.
+  // Turn it off with localStorage.sherz_mic_autostop = '0'.
+  const END_SILENCE_MS = 1400, END_SILENCE_SHORT_MS = 1800, SHORT_UTTERANCE_MS = 1500;
+  const autoStopOn = () => { try { return localStorage.getItem('sherz_mic_autostop') !== '0'; } catch(e){ return true; } };
 
   function releaseStream(){
     if (mediaStream){
@@ -3615,7 +3854,11 @@ html.platform-ios body {
         const rms = Math.sqrt(sum / buf.length);
         S.t += 80;
         if (S.t <= 400) S.noise = Math.max(S.noise, Math.min(rms, 0.05));   // first 0.4s = room noise floor
-        else if (rms > Math.max(0.02, S.noise * 3)) S.speechMs += 80;
+        else if (rms > Math.max(0.02, S.noise * 3)){ S.speechMs += 80; S.lastVoiceT = S.t; }
+        else if (S.speechMs >= MIN_SPEECH_MS && S.lastVoiceT && !S.autoEnded && S.autoStop && listening && sess === S){
+          const quietFor = S.t - S.lastVoiceT, need = S.speechMs < SHORT_UTTERANCE_MS ? END_SILENCE_SHORT_MS : END_SILENCE_MS;
+          if (quietFor >= need){ S.autoEnded = true; endListening(); }        // finished speaking → send
+        }
       }, 80);
     }catch(e){
       console.warn('[mic] VAD unavailable, falling back to server-side filtering only:', e.message);
@@ -3647,11 +3890,13 @@ html.platform-ios body {
     // the instant they tap, even before getUserMedia actually resolves
     setStatus('listening');
     heroMicEl?.classList.add('listening');
-    const S = { discard:false, manual:!!manual, speechMs:0 };
+    const S = { discard:false, manual:!!manual, speechMs:0, autoStop: autoStopOn() };
     sess = S;
 
     try{
-      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // echo cancellation / noise suppression / auto gain: cleaner speech = better transcription (and SHERZ's own voice is not picked up)
+      try { mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } }); }
+      catch(e0){ if (e0 && (e0.name === 'OverconstrainedError' || e0.name === 'ConstraintNotSatisfiedError')) mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true }); else throw e0; }
     }catch(e){
       heroMicEl?.classList.remove('listening');
       setStatus('idle');
@@ -3766,7 +4011,7 @@ html.platform-ios body {
     if (navigator.vibrate){ try{ navigator.vibrate(40); }catch(e){} }
     if (listening) endListening();
     else if (transcribing){ voiceReset(); }
-    else hardStart();
+    else { try{ if (window.__ttsStop) window.__ttsStop(); }catch(e){} hardStart(); }   // tapping the mic while SHERZ is talking = barge-in: its voice stops first (it would be recorded otherwise)
   }
   window.__micToggle = toggleListening;
 
@@ -3815,7 +4060,8 @@ html.platform-ios body {
       const fd = new FormData();
       const ext = (blob.type.split('/')[1] || 'mp4').split(';')[0];
       fd.append('file', blob, `voice.${ext}`);
-      // No `lang`: the server lets Whisper auto-detect (it rejects 'uz').
+      // No `lang`: Whisper auto-detects (it rejects 'uz', and a forced language breaks mixed speech). `hint` is only the app language, used server-side to bias spelling.
+      try { const h = window.SherzI18n && window.SherzI18n.lang; if (h) fd.append('hint', h); } catch(e){}
       return fd;
     };
 
@@ -5818,6 +6064,7 @@ setMoodUI({ mood: 'Calm', state: 'Neutral' });
   draw();
 
   window.__orbSetState = function(newState) {
+    if (newState === 'transcribing') newState = 'thinking';      // the orb has no "transcribing" look: turning speech into text reads as thinking
     state = STATES[newState] ? newState : 'idle';
     shell.className = 's-' + state;
   };
@@ -5835,7 +6082,9 @@ shell.addEventListener('click', () => {
       window.__orbSetState(mode || 'idle');
     };
   } else {
+    let pollTries = 0;
     const poll = setInterval(() => {
+      if (++pollTries > 60) { clearInterval(poll); return; }      // setStatus now drives the orb itself; this link-up is no longer needed
       if (typeof setStatus === 'function') {
         const _orig = setStatus;
         window.setStatus = function(mode) {
@@ -5876,6 +6125,8 @@ shell.addEventListener('click', () => {
       const kbHeight = Math.max(0, window.innerHeight - vv.height);
       document.documentElement.style.setProperty('--kb-offset', kbHeight + 'px');
     }
+    // keyboard open → the home-indicator padding is hidden behind the keyboard, so drop it (CSS: html.kb-open)
+    document.documentElement.classList.toggle('kb-open', (window.innerHeight - vv.height) > 120);
     scrollFeedToBottom();
   }
 
@@ -5891,5 +6142,28 @@ shell.addEventListener('click', () => {
   });
 })();
 </script>
+  <!-- first-run welcome (shown once) -->
+  <div id="obOverlay" class="ob-overlay" role="dialog" aria-modal="true" aria-labelledby="obTitle" hidden>
+    <div class="ob-card">
+      <div id="obStep1" class="ob-step">
+        <div class="ob-logo" aria-hidden="true"><img src="/sherz-icon.svg" alt="" width="44" height="44"></div>
+        <h2 id="obTitle" class="ob-title">Welcome to SHERZ</h2>
+        <p class="ob-text">I’m here to think with you, remember what matters and help you get things done. What should I call you?</p>
+        <input id="obName" class="ob-input" maxlength="40" autocomplete="off" spellcheck="false" placeholder="Your name (optional)">
+        <div class="ob-actions">
+          <button id="obNext" class="ob-btn ob-primary" type="button">Continue</button>
+          <button id="obSkip1" class="ob-btn ob-ghost" type="button">Skip</button>
+        </div>
+      </div>
+      <div id="obStep2" class="ob-step" hidden>
+        <h2 class="ob-title">How do you want to start?</h2>
+        <p class="ob-text">You can use both at any time.</p>
+        <button id="obCompanion" class="ob-choice" type="button"><b>Companion</b><span>Your personal thread. Talk about anything; I remember you over time.</span></button>
+        <button id="obWork" class="ob-choice" type="button"><b>Work Space</b><span>A focused place with its own rules and skills, set up for what you do.</span></button>
+        <div class="ob-actions"><button id="obSkip2" class="ob-btn ob-ghost" type="button">Decide later</button></div>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>

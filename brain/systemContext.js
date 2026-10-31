@@ -176,6 +176,7 @@ export async function buildFullSystemContext({
         query: userText,
         prisma,
         topK: 6,
+        scope: workMode ? 'work' : 'companion',   // a Work Space chat and the personal thread keep their own conversation summaries
       });
 
       const ragFactsText = formatFactsForPrompt(relevantFacts);

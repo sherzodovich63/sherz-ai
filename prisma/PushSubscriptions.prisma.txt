@@ -1,0 +1,20 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Web Push subscriptions (notifications while the app is closed) — Phase 1.
+// Apply:  1) APPEND the model below to the END of prisma/schema.prisma   (node apply_schema_push.mjs does it for you)
+//         2) npx prisma db push      (adds ONE new table; nothing existing is touched)
+//         3) npx prisma generate
+// One row per browser / installed app. `endpoint` is the unique address the browser gave us; `p256dh` + `auth` are its public encryption keys.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model PushSubscription {
+  id         String    @id @default(cuid())
+  userId     String
+  endpoint   String    @unique
+  p256dh     String
+  auth       String
+  userAgent  String    @default("")
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+
+  @@index([userId])
+}

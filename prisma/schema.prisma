@@ -580,3 +580,17 @@ model SolutionConfirmation {
   @@unique([solutionId, userHash])
   @@index([userHash])
 }
+
+// ── Web Push subscriptions ──
+model PushSubscription {
+  id         String    @id @default(cuid())
+  userId     String
+  endpoint   String    @unique
+  p256dh     String
+  auth       String
+  userAgent  String    @default("")
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+
+  @@index([userId])
+}

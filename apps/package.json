@@ -19,8 +19,12 @@
     "ios:open": "npm run mobile:sync && npm run open:ios --prefix mobile",
     "test": "node --test scripts/*.test.mjs",
     "icons": "npm run icons --prefix desktop --",
+    "web-icons": "npm run web-icons --prefix desktop --",
     "desktop:local": "node scripts/sync-web.mjs --api http://localhost:3000 && npm start --prefix desktop",
     "desktop:debug": "npm run sync && npm run debug --prefix desktop",
     "desktop:local:debug": "node scripts/sync-web.mjs --api http://localhost:3000 && npm run debug --prefix desktop"
+  },
+  "dependencies": {
+    "web-push": "^3.6.7"
   }
 }

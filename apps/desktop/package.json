@@ -15,6 +15,7 @@
     "dist:mac": "electron-builder --mac",
     "dist:linux": "electron-builder --linux",
     "icons": "electron src/make-icons.cjs",
+    "web-icons": "electron src/make-web-icons.cjs",
     "debug": "electron . --sherz-debug"
   },
   "dependencies": {

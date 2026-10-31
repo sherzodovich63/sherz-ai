@@ -16,6 +16,23 @@
 
   /* ───────────── dictionary: [English, O‘zbek, Русский] ───────────── */
   const D = [
+    // — memory groups —
+    ['People', 'Odamlar', 'Люди'],
+    ['Preferences', 'Afzalliklar', 'Предпочтения'],
+    ['Habits', 'Odatlar', 'Привычки'],
+    ['Plans', 'Rejalar', 'Планы'],
+    ['Other', 'Boshqa', 'Другое'],
+    // — first-run welcome —
+    ['Welcome to SHERZ', 'SHERZ’ga xush kelibsiz', 'Добро пожаловать в SHERZ'],
+    ['I’m here to think with you, remember what matters and help you get things done. What should I call you?', 'Men siz bilan birga fikrlash, muhim narsalarni eslab qolish va ishlaringizni bitirishda yordam berish uchun shu yerdaman. Sizni qanday chaqiray?', 'Я здесь, чтобы думать вместе с вами, помнить важное и помогать доводить дела до конца. Как к вам обращаться?'],
+    ['Your name (optional)', 'Ismingiz (ixtiyoriy)', 'Ваше имя (по желанию)'],
+    ['Continue', 'Davom etish', 'Продолжить'],
+    ['Skip', 'O‘tkazib yuborish', 'Пропустить'],
+    ['How do you want to start?', 'Qanday boshlamoqchisiz?', 'С чего начнём?'],
+    ['You can use both at any time.', 'Ikkalasidan ham istalgan payt foydalanishingiz mumkin.', 'Пользоваться можно и тем, и другим в любой момент.'],
+    ['Your personal thread. Talk about anything; I remember you over time.', 'Shaxsiy suhbatingiz. Xohlagan narsa haqida gaplashing; men sizni vaqt o‘tishi bilan eslab qolaman.', 'Ваш личный чат. Говорите о чём угодно; я запоминаю вас со временем.'],
+    ['A focused place with its own rules and skills, set up for what you do.', 'O‘z qoidalari va ko‘nikmalariga ega, qilayotgan ishingizga moslangan alohida maydon.', 'Отдельное место со своими правилами и навыками, настроенное под ваше дело.'],
+    ['Decide later', 'Keyinroq hal qilaman', 'Решу позже'],
     // — sidebar / menu —
     ['Menu', 'Menyu', 'Меню'],
     ['Companion', 'Hamroh', 'Компаньон'],
@@ -111,6 +128,14 @@
     ['Learn from other professionals', 'Boshqa mutaxassislardan o‘rganish', 'Учиться у других специалистов'],
     ['Learn from verified solutions across all work spaces. When you confirm that an answer worked, only the anonymized method is shared — never your name, personal data, or private files. Off by default.', 'Barcha ish maydonlaridagi tasdiqlangan yechimlardan o‘rganing. Javob ishlaganini tasdiqlasangiz, faqat anonim usul ulashiladi — ismingiz, shaxsiy ma’lumotlaringiz yoki maxfiy fayllaringiz hech qachon. Odatda o‘chiq.', 'Учитесь на проверенных решениях из всех рабочих пространств. Когда вы подтверждаете, что ответ сработал, делится только обезличенный метод — никогда ваше имя, личные данные или частные файлы. По умолчанию выключено.'],
     ['Remove my contributions', 'Hissamni o‘chirish', 'Удалить мой вклад'],
+    ['What SHERZ remembers', 'SHERZ nimalarni eslab qoladi', 'Что помнит SHERZ'],
+    ['Things SHERZ has learned about you. Change or remove anything — it is yours.', 'SHERZ siz haqingizda bilib olgan narsalar. Xohlaganingizni o‘zgartiring yoki o‘chiring — bu sizniki.', 'Что SHERZ узнал о вас. Меняйте или удаляйте что угодно — это ваше.'],
+    ['Nothing yet. As we talk, what matters to you shows up here.', 'Hozircha hech narsa yo‘q. Suhbatlashganimiz sari siz uchun muhim narsalar shu yerda paydo bo‘ladi.', 'Пока пусто. По мере разговора здесь появится то, что важно для вас.'],
+    ['Could not load your memory.', 'Xotirani yuklab bo‘lmadi.', 'Не удалось загрузить память.'],
+    ['Forget', 'Unutish', 'Забыть'],
+    ['Search memory', 'Xotiradan qidirish', 'Поиск по памяти'],
+    ['Keep', 'Qoldirish', 'Оставить'],
+    ['Try again', 'Qayta urinish', 'Повторить'],
     ['Sign in to take part.', 'Qatnashish uchun tizimga kiring.', 'Войдите, чтобы участвовать.'],
     ['Not available yet on this server.', 'Bu serverda hozircha mavjud emas.', 'Пока недоступно на этом сервере.'],
     ['On. Only anonymized methods are shared.', 'Yoqildi. Faqat anonim usullar ulashiladi.', 'Включено. Делятся только обезличенные методы.'],

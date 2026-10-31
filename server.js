@@ -28,6 +28,10 @@ import { runBrain, resetFriendBrainState } from './brain/brain.js'; // ✅ FIX: 
 import * as killSwitch from './lib/killSwitch.js'; // ✅ Sprint 3 admin layer
 import adminRouter from './routes/admin.js'; // ✅ Sprint 3 admin layer
 import { spacesRouter } from './routes/spaces.js';      // ✅ Work Spaces + Skills (Phase 4)
+import { createWebPush } from './lib/webPush.js';                  // notifications while the app is closed (Web Push)
+import { pushRouter } from './routes/push.js';
+import { setPushNotifier } from './proactive/proactiveRunner.js';
+import { sttRouter } from './routes/stt.js';                      // voice → text: provider choice, Uzbek script fix, fallback
 import { loadWorkMode, setSolutionsProvider } from './lib/spaces.js';
 import { createSharedSolutions } from './lib/sharedSolutions.js';          // opt-in shared learning (Work Space roles)
 import { createSolutionsRuntime } from './lib/solutionsRuntime.js';
@@ -101,6 +105,7 @@ function makeHelmet() {
       "connect-src": ["'self'", "https:", "http:"], // Google/Wiki/SerpAPI/fetch uchun
       "media-src": ["'self'", "data:", "blob:"],  // ✅ FIX: blob: needed for TTS Blob URL audio playback
       "font-src": ["'self'", "data:", "https://fonts.gstatic.com"],
+      ...(isProd ? {} : { "upgrade-insecure-requests": null }),
       // Agar UI CDN script ishlatsa, devda inline ga ruxsat
       ...(isProd
         ? { "script-src": ["'self'"] }
@@ -2119,6 +2124,11 @@ else console.warn('[files] GeneratedFile model missing — using in-memory file 
 app.use('/api/files', filesRouter({ isProd, ensureUser: ensureGuestUser }));   // Phase 5
 app.use('/api/greeting', greetingRouter({ isProd, ensureUser: ensureGuestUser, service: createGreetingService({ openai, prisma }) }));   // fresh opening line for an empty chat
 app.use('/api/spaces', spacesRouter({ prisma, isProd, ensureUser: ensureGuestUser, llm: spaceGeneratorLlm }));   // Phase 4
+// ── Web Push: needs prisma/PushSubscriptions.prisma.txt in schema.prisma + `npx prisma db push`, `npm i web-push`, and VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT in .env (npx web-push generate-vapid-keys) ──
+const webPush = createWebPush({ prisma });
+setPushNotifier(({ userId, text, meta }) => webPush.sendToUser(userId, { title: 'SHERZ', body: text, url: '/', tag: (meta && meta.boundaryDecision) || 'proactive' }));
+if (!webPush.ready()) console.warn('[push] off — add the PushSubscription table and VAPID_* keys to enable notifications while the app is closed.');
+app.use('/api/push', pushRouter({ service: webPush, isProd, ensureUser: ensureGuestUser }));
 // ── Shared learning (opt-in, Work Space roles only): needs prisma/SharedSolutions.prisma.txt appended to schema.prisma + `npx prisma db push` ──
 const solutionsService = createSharedSolutions({
   prisma,
@@ -2320,11 +2330,37 @@ app.post('/api/ask', async (req, res) => {
   }
 });
 
+app.use('/api/stt', sttRouter({ upload, getVocab: (uid) => (typeof sttVocab === 'function' ? sttVocab(uid) : '') }));   // before the old inline route below
+
 // STT ping
 app.get('/api/stt/ping', (_req, res) => {
   const ready = !!process.env.OPENAI_API_KEY;
   res.json({ ok: true, provider: ready ? 'openai-whisper' : 'none', ready });
 });
+
+// stt-vocab: names / places from the person's memory help Whisper spell them right
+const sttVocabCache = new Map();   // userId -> { at, text }
+async function sttVocab(userId) {
+  try {
+    if (!userId || !prisma?.fact) return '';
+    const hit = sttVocabCache.get(userId); if (hit && Date.now() - hit.at < 60000) return hit.text;
+    const rows = await Promise.race([
+      prisma.fact.findMany({ where: { userId, OR: [{ type: null }, { type: { notIn: ['state', 'conversation_summary'] } }] }, orderBy: { updatedAt: 'desc' }, take: 60, select: { key: true, value: true } }),
+      new Promise((r) => setTimeout(() => r(null), 400)),
+    ]);
+    if (!rows) return '';
+    const SYS = /^(proactive|learn|last|skill|system|internal|tmp|cache|state|tone|memory_compaction)[_:]/i;
+    const words = [];
+    for (const f of rows) {
+      if (SYS.test(String(f.key || ''))) continue;
+      const v = String(f.value || '').trim();
+      if (v.length >= 2 && v.length <= 30 && !/[.!?]\s/.test(v) && /\p{Lu}/u.test(v) && !words.includes(v)) words.push(v);   // short capitalised values = names, places, brands
+    }
+    const text = words.slice(0, 20).join(', ').slice(0, 240);
+    sttVocabCache.set(userId, { at: Date.now(), text });
+    return text;
+  } catch { return ''; }
+}
 
 // STT endpoint (OpenAI Whisper)
 app.post('/api/stt', upload.single('file'), async (req, res) => {
@@ -2332,7 +2368,8 @@ app.post('/api/stt', upload.single('file'), async (req, res) => {
     const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
     if (!OPENAI_API_KEY) return res.status(501).json({ ok: false, error: 'STT disabled (OPENAI_API_KEY yo‘q)' });
 
-    const lang = (req.body?.lang || 'uz').toString().slice(0, 5);
+    const lang = (req.body?.lang || '').toString().slice(0, 5);
+    const hint = (req.body?.hint || '').toString().slice(0, 5).toLowerCase();   // app language, only used to bias spelling
     let fileBuf = null, mime = null, filename = null;
 
     if (req.file?.buffer) {
@@ -2353,7 +2390,10 @@ app.post('/api/stt', upload.single('file'), async (req, res) => {
     const blob = new Blob([fileBuf], { type: mime || 'application/octet-stream' });
     fd.append('file', blob, filename);
     fd.append('model', 'whisper-1');
-    fd.append('language', lang);
+    // stt-no-language: never send `language` — whisper-1 rejects 'uz' (HTTP 400) and a forced language breaks mixed speech; Whisper auto-detects
+    fd.append('response_format', 'verbose_json');
+    const promptParts = [hint === 'uz' ? 'Assalomu alaykum. Bugun qanday ishlar qildik? Yaxshi, rahmat.' : '', await sttVocab(req.user?.id)].filter(Boolean);   // Uzbek (Latin) sample + the person's own names
+    if (promptParts.length) fd.append('prompt', promptParts.join(' ').slice(0, 400));
 
     const r = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
@@ -2366,7 +2406,7 @@ app.post('/api/stt', upload.single('file'), async (req, res) => {
       return res.status(r.status).json({ ok: false, error: j.error?.message || 'whisper failed' });
     }
 
-    return res.json({ ok: true, text: (j?.text || '').trim(), lang });
+    return res.json({ ok: true, text: (j?.text || '').trim(), lang: (j?.language || lang || '').toString() });
   } catch (e) {
     console.error('STT error:', e);
     res.status(500).json({ ok: false, error: 'stt failed' });
